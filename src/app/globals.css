@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-warm: #F7F6F2;
+    --surface-white: #FFFFFF;
+    --primary-charcoal: #202923;
+    --primary-charcoal-hover: #161D19;
+    --accent-gold: #B69A65;
+    --accent-gold-hover: #9E8351;
+    --accent-gold-light: #FBF8F1;
+    --accent-gold-border: #E8DEC8;
+    --text-primary: #202923;
+    --text-secondary: #777C77;
+    --text-muted: #959A95;
+    --border-color: #E8E6DF;
+    --border-subtle: #F1EFEA;
+    --status-available-text: #235F42;
+    --status-available-bg: #EDF7F2;
+    --status-available-border: #C8E8D7;
+    --status-occupied-text: #214366;
+    --status-occupied-bg: #EFF5FB;
+    --status-occupied-border: #CBDFF2;
+    --status-reserved-text: #8C6A23;
+    --status-reserved-bg: #FDF9EE;
+    --status-reserved-border: #F3E4BF;
+    --status-cleaning-text: #A66719;
+    --status-cleaning-bg: #FEF7ED;
+    --status-cleaning-border: #FBE0B9;
+    --status-maintenance-text: #963535;
+    --status-maintenance-bg: #FDF2F2;
+    --status-maintenance-border: #F7CECE;
+  }
+
+  body {
+    background-color: #F7F6F2;
+    color: #202923;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #F7F6F2;
+}
+::-webkit-scrollbar-thumb {
+  background: #D9D6CC;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #B69A65;
+}
+
+/* Luxury card styling */
+.luxury-card {
+  background-color: #FFFFFF;
+  border: 1px solid #E8E6DF;
+  box-shadow: 0 1px 3px 0 rgba(32, 41, 35, 0.03), 0 1px 2px -1px rgba(32, 41, 35, 0.02);
+  border-radius: 0.75rem;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.luxury-card:hover {
+  border-color: #D6D2C4;
+  box-shadow: 0 4px 14px 0 rgba(32, 41, 35, 0.05);
+}
+
+.luxury-table-row {
+  transition: background-color 0.15s ease;
+}
+
+.luxury-table-row:hover {
+  background-color: #FAF9F5;
+}
+
+/* Subtle gold ring focus */
+.focus-gold:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #F7F6F2, 0 0 0 4px #B69A65;
+}
+
+/* Smooth badge pill animations */
+@keyframes pulseSubtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.badge-live-pulse {
+  animation: pulseSubtle 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
