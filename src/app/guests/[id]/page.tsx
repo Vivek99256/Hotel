@@ -30,6 +30,10 @@ import {
   Camera,
   ZoomIn,
   X,
+  Folder,
+  FolderOpen,
+  ExternalLink,
+  HardDrive,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { StayRecord } from '@/types/hotel';
@@ -48,22 +52,142 @@ function GuestProfileContent({ id }: { id: string }) {
 
   const frontFileRef = useRef<HTMLInputElement>(null);
   const backFileRef = useRef<HTMLInputElement>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isOpeningFolder, setIsOpeningFolder] = useState(false);
+  const [folderFeedback, setFolderFeedback] = useState<string | null>(null);
 
-  const handleUploadPhoto = (e: React.ChangeEvent<HTMLInputElement>, isFront: boolean) => {
+  const handleOpenGuestFolder = async () => {
+    if (!guest) return;
+    setIsOpeningFolder(true);
+    setFolderFeedback(null);
+    try {
+      const res = await fetch('/api/open-guest-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          guestName: guest.fullName,
+          guestId: guest.id,
+          frontImage: guest.document?.documentImageUrl,
+          backImage: guest.document?.documentBackImageUrl,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setFolderFeedback('Folder opened in File Explorer');
+        setTimeout(() => setFolderFeedback(null), 4000);
+      } else {
+        alert('Could not open folder: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      console.error('Error opening local folder:', err);
+      alert('Failed to open folder: ' + err.message);
+    } finally {
+      setIsOpeningFolder(false);
+    }
+  };
+
+  // Auto-migrate any existing base64 photos to the local filesystem folder
+  React.useEffect(() => {
+    if (!guest || !guest.document) return;
+
+    const autoSaveToDisk = async () => {
+      const front = guest.document?.documentImageUrl;
+      const back = guest.document?.documentBackImageUrl;
+
+      let newFrontUrl = front;
+      let newBackUrl = back;
+      let needsUpdate = false;
+
+      if (front && front.startsWith('data:')) {
+        try {
+          const res = await fetch('/api/upload-guest-doc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              guestName: guest.fullName,
+              guestId: guest.id,
+              side: 'front',
+              base64: front,
+            }),
+          });
+          const d = await res.json();
+          if (d.success && d.url) {
+            newFrontUrl = d.url;
+            needsUpdate = true;
+          }
+        } catch (e) {
+          console.warn('Auto local save front error:', e);
+        }
+      }
+
+      if (back && back.startsWith('data:')) {
+        try {
+          const res = await fetch('/api/upload-guest-doc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              guestName: guest.fullName,
+              guestId: guest.id,
+              side: 'back',
+              base64: back,
+            }),
+          });
+          const d = await res.json();
+          if (d.success && d.url) {
+            newBackUrl = d.url;
+            needsUpdate = true;
+          }
+        } catch (e) {
+          console.warn('Auto local save back error:', e);
+        }
+      }
+
+      if (needsUpdate) {
+        updateGuestDocument(guest.id, {
+          documentImageUrl: newFrontUrl,
+          documentBackImageUrl: newBackUrl,
+        });
+      }
+    };
+
+    autoSaveToDisk();
+  }, [guest?.id]);
+
+  const handleUploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>, isFront: boolean) => {
     const file = e.target.files?.[0];
     if (!file || !guest) return;
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
+    setIsUploadingPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('guestName', guest.fullName);
+      formData.append('guestId', guest.id);
+      formData.append('side', isFront ? 'front' : 'back');
+
+      const res = await fetch('/api/upload-guest-doc', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (data.success && data.url) {
+        const fileUrl = `${data.url}?t=${Date.now()}`;
         if (isFront) {
-          updateGuestDocument(guest.id, { documentImageUrl: reader.result });
+          updateGuestDocument(guest.id, { documentImageUrl: fileUrl });
         } else {
-          updateGuestDocument(guest.id, { documentBackImageUrl: reader.result });
+          updateGuestDocument(guest.id, { documentBackImageUrl: fileUrl });
         }
+      } else {
+        alert('Could not save photo locally: ' + (data.error || 'Unknown error'));
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (err: any) {
+      console.error('Photo upload error:', err);
+      alert('Error uploading photo: ' + err.message);
+    } finally {
+      setIsUploadingPhoto(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   if (!guest) {
@@ -285,10 +409,29 @@ function GuestProfileContent({ id }: { id: string }) {
                     <span className="text-[11px] font-semibold text-[#202923]">
                       Customer ID Proof Photo:
                     </span>
-                    <span className="text-[10px] text-[#2E6F4E] font-medium bg-[#E8F5E9] px-2 py-0.5 rounded-full">
-                      Archived in Live Supabase
-                    </span>
+                    <button
+                      type="button"
+                      onClick={handleOpenGuestFolder}
+                      disabled={isOpeningFolder}
+                      className="inline-flex items-center gap-1 text-[11px] text-[#8F6F2E] hover:text-[#5F4818] font-semibold hover:underline cursor-pointer transition-all active:scale-95"
+                      title="Open guest photos folder in Windows File Explorer"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5 text-[#B69A65]" />
+                      <span>{isOpeningFolder ? 'Opening Folder...' : 'Open Local Folder ↗'}</span>
+                    </button>
                   </div>
+
+                  {folderFeedback && (
+                    <div className="mb-2 text-center py-1 text-[11px] text-[#2E6F4E] bg-[#E8F5E9] border border-[#C8E8D7] rounded-lg font-medium animate-fadeIn">
+                      ✓ {folderFeedback}
+                    </div>
+                  )}
+
+                  {isUploadingPhoto && (
+                    <div className="mb-2 text-center py-1 text-xs text-[#8F6F2E] bg-[#FAF5EC] rounded-lg animate-pulse">
+                      Saving photo to local guest folder...
+                    </div>
+                  )}
 
                   {/* Hidden File Inputs */}
                   <input
@@ -307,21 +450,28 @@ function GuestProfileContent({ id }: { id: string }) {
                   />
 
                   <div className="grid grid-cols-2 gap-2.5">
-                    {/* Front Side */}
+                    {/* Front Side - Click photo to open local folder directly */}
                     <div>
                       {guest.document.documentImageUrl ? (
                         <div
-                          onClick={() => setPreviewImageModal(guest.document?.documentImageUrl || null)}
-                          className="relative group rounded-xl overflow-hidden border border-[#E8E6DF] bg-white h-28 cursor-pointer shadow-xs hover:border-[#B69A65] transition-all"
+                          onClick={handleOpenGuestFolder}
+                          className="relative group rounded-xl overflow-hidden border border-[#E8E6DF] bg-white h-28 cursor-pointer shadow-xs hover:border-[#B69A65] hover:shadow-md transition-all"
+                          title="Click photo to open local folder in File Explorer"
                         >
                           <img
                             src={guest.document.documentImageUrl}
                             alt="ID Front"
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                           />
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white gap-1 text-xs font-medium">
-                            <ZoomIn className="h-4 w-4" /> Zoom / View
+                          {/* Hover Link Overlay */}
+                          <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-opacity text-white gap-1 text-xs font-semibold p-2 text-center backdrop-blur-[0.5px]">
+                            <FolderOpen className="h-5 w-5 text-[#E6C687]" />
+                            <span className="text-[11px] underline">Open in Local Folder ↗</span>
                           </div>
+                          {/* Visible Link Badge right on the photo */}
+                          <span className="absolute top-1.5 right-1.5 bg-black/75 text-white text-[9px] px-1.5 py-0.5 rounded-md font-medium flex items-center gap-1 shadow-xs border border-white/20 group-hover:bg-[#202923]">
+                            <FolderOpen className="h-2.5 w-2.5 text-[#E6C687]" /> Open Folder ↗
+                          </span>
                           <span className="absolute bottom-1.5 left-1.5 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded font-medium">
                             Front Side
                           </span>
@@ -346,21 +496,28 @@ function GuestProfileContent({ id }: { id: string }) {
                       </button>
                     </div>
 
-                    {/* Back Side */}
+                    {/* Back Side - Click photo to open local folder directly */}
                     <div>
                       {guest.document.documentBackImageUrl ? (
                         <div
-                          onClick={() => setPreviewImageModal(guest.document?.documentBackImageUrl || null)}
-                          className="relative group rounded-xl overflow-hidden border border-[#E8E6DF] bg-white h-28 cursor-pointer shadow-xs hover:border-[#B69A65] transition-all"
+                          onClick={handleOpenGuestFolder}
+                          className="relative group rounded-xl overflow-hidden border border-[#E8E6DF] bg-white h-28 cursor-pointer shadow-xs hover:border-[#B69A65] hover:shadow-md transition-all"
+                          title="Click photo to open local folder in File Explorer"
                         >
                           <img
                             src={guest.document.documentBackImageUrl}
                             alt="ID Back"
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                           />
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white gap-1 text-xs font-medium">
-                            <ZoomIn className="h-4 w-4" /> Zoom / View
+                          {/* Hover Link Overlay */}
+                          <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-opacity text-white gap-1 text-xs font-semibold p-2 text-center backdrop-blur-[0.5px]">
+                            <FolderOpen className="h-5 w-5 text-[#E6C687]" />
+                            <span className="text-[11px] underline">Open in Local Folder ↗</span>
                           </div>
+                          {/* Visible Link Badge right on the photo */}
+                          <span className="absolute top-1.5 right-1.5 bg-black/75 text-white text-[9px] px-1.5 py-0.5 rounded-md font-medium flex items-center gap-1 shadow-xs border border-white/20 group-hover:bg-[#202923]">
+                            <FolderOpen className="h-2.5 w-2.5 text-[#E6C687]" /> Open Folder ↗
+                          </span>
                           <span className="absolute bottom-1.5 left-1.5 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded font-medium">
                             Back Side
                           </span>
@@ -385,114 +542,41 @@ function GuestProfileContent({ id }: { id: string }) {
                       </button>
                     </div>
                   </div>
+
+                  {/* Local Folder path on disk (clickable link) */}
+                  <div
+                    onClick={handleOpenGuestFolder}
+                    role="button"
+                    tabIndex={0}
+                    className="mt-2.5 rounded-lg border border-[#E8E6DF] bg-[#FAF9F6] hover:bg-[#F4F1EA] p-2 text-[10px] text-[#777C77] flex items-center justify-between cursor-pointer transition-colors group"
+                    title="Click to open this folder directly in File Explorer"
+                  >
+                    <div className="flex items-center gap-1.5 truncate">
+                      <Folder className="h-3.5 w-3.5 text-[#B69A65] shrink-0 group-hover:scale-105 transition-transform" />
+                      <span className="truncate">
+                        Folder: <strong className="font-mono text-[#202923]">public/uploads/guests/{guest.fullName}/</strong>
+                      </span>
+                    </div>
+                    <span className="text-[9px] text-[#8F6F2E] font-semibold shrink-0 ml-2 group-hover:underline flex items-center gap-0.5">
+                      Open Folder ↗
+                    </span>
+                  </div>
                 </div>
 
-                <div className="border-t border-[#E8E6DF] pt-2 text-[11px] text-[#959A95] flex items-center justify-between">
-                  <span>Verified by {guest.document.verifiedBy || 'Priya Patel'}</span>
-                  <span className="text-[#2E6F4E] font-medium flex items-center gap-1">
-                    <CheckCircle2 className="h-3 w-3" /> Encrypted & Stored
-                  </span>
-                </div>
+                
               </div>
             ) : (
               <div className="p-4 rounded-xl border border-dashed border-[#E8E6DF] bg-[#FAF9F6] text-center text-xs text-[#777C77]">
-                <ShieldAlert className="h-6 w-6 text-[#A66719] mx-auto mb-2" />
-                No document on file. Verification requested upon check-in.
+                
               </div>
             )}
           </div>
 
           {/* Hospitality Preferences Card */}
-          <div className="rounded-2xl border border-[#E8E6DF] bg-white p-5 shadow-xs">
-            <div className="flex items-center gap-2 mb-4">
-              <Sparkles className="h-4 w-4 text-[#B69A65]" />
-              <h3 className="text-sm font-semibold text-[#202923]">Guest Preferences</h3>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="flex items-center justify-between border-b border-[#E8E6DF]/60 pb-2">
-                <span className="text-[#777C77]">Pillow Selection:</span>
-                <span className="font-medium text-[#202923]">
-                  {guest.preferences.pillowType || 'Hypoallergenic Feather'}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between border-b border-[#E8E6DF]/60 pb-2">
-                <span className="text-[#777C77]">Floor Location:</span>
-                <span className="font-medium text-[#202923]">
-                  {guest.preferences.floorPreference || 'High Floor'}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between border-b border-[#E8E6DF]/60 pb-2">
-                <span className="text-[#777C77]">Target Climate:</span>
-                <span className="font-medium text-[#202923]">
-                  {guest.preferences.roomTemperature || '21.0°C'}
-                </span>
-              </div>
-
-              <div className="border-b border-[#E8E6DF]/60 pb-2">
-                <span className="text-[#777C77] block mb-1">Welcome Amenity:</span>
-                <span className="font-medium text-[#8F6F2E]">
-                  {guest.preferences.welcomeAmenity || 'Seasonal artisanal treats & mineral water'}
-                </span>
-              </div>
-
-              {guest.preferences.dietaryRestrictions && guest.preferences.dietaryRestrictions.length > 0 && (
-                <div>
-                  <span className="text-[#777C77] block mb-1.5">Dietary Notes:</span>
-                  <div className="flex gap-1.5 flex-wrap">
-                    {guest.preferences.dietaryRestrictions.map((diet, idx) => (
-                      <span
-                        key={idx}
-                        className="rounded-md border border-[#E8E6DF] bg-[#FAF9F6] px-2 py-0.5 text-[11px] font-medium text-[#202923]"
-                      >
-                        {diet}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+          
 
           {/* Concierge Confidential Notes */}
-          <div className="rounded-2xl border border-[#E8E6DF] bg-white p-5 shadow-xs">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-[#B69A65]" />
-                <h3 className="text-sm font-semibold text-[#202923]">Concierge Notes</h3>
-              </div>
-              <button
-                onClick={() => setIsEditingNotes(!isEditingNotes)}
-                className="text-xs text-[#8F6F2E] hover:underline flex items-center gap-1"
-              >
-                <Edit3 className="h-3 w-3" />
-                {isEditingNotes ? 'Cancel' : 'Edit'}
-              </button>
-            </div>
-
-            {isEditingNotes ? (
-              <div className="space-y-2">
-                <textarea
-                  rows={3}
-                  value={notesDraft}
-                  onChange={(e) => setNotesDraft(e.target.value)}
-                  className="w-full rounded-xl border border-[#E8E6DF] p-2.5 text-xs text-[#202923] focus:border-[#B69A65] focus:outline-none"
-                />
-                <button
-                  onClick={handleSaveNotes}
-                  className="rounded-lg bg-[#202923] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#161D19]"
-                >
-                  Save Notes
-                </button>
-              </div>
-            ) : (
-              <p className="text-xs text-[#777C77] leading-relaxed bg-[#FAF9F6] p-3 rounded-xl border border-[#E8E6DF]">
-                {guest.notes || 'No confidential notes recorded for this guest.'}
-              </p>
-            )}
-          </div>
+          
         </div>
 
         {/* Right Column (2 Cols): Stay History Timeline & Past Room Assignments */}

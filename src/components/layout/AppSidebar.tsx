@@ -10,7 +10,6 @@ import {
   Users,
   BedDouble,
   CalendarDays,
-  KeyRound,
   BarChart3,
   UserCog,
   ShieldAlert,
@@ -43,7 +42,7 @@ export function AppSidebar({
   const navItems = [
     {
       label: 'Dashboard',
-      href: '/',
+      href: '/dashboard',
       icon: LayoutDashboard,
     },
     {
@@ -58,34 +57,28 @@ export function AppSidebar({
       badge: cleaningCount > 0 ? `${cleaningCount} cleaning` : undefined,
       badgeColor: 'amber',
     },
-    {
-      label: 'Reservations',
-      href: '/reservations',
-      icon: CalendarDays,
-      badge: arrivalsToday > 0 ? `${arrivalsToday} due` : undefined,
-      badgeColor: 'gold',
-    },
-    {
-      label: 'Check-In / Out',
-      href: '/check-in',
-      icon: KeyRound,
-      highlight: true,
-    },
-    {
-      label: 'Reports',
-      href: '/reports',
-      icon: BarChart3,
-    },
-    {
-      label: 'Staff & Settings',
-      href: '/staff',
-      icon: UserCog,
-    },
-    {
-      label: 'Audit Logs',
-      href: '/audit-logs',
-      icon: ShieldAlert,
-    },
+    // {
+    //   label: 'Reservations',
+    //   href: '/reservations',
+    //   icon: CalendarDays,
+    //   badge: arrivalsToday > 0 ? `${arrivalsToday} due` : undefined,
+    //   badgeColor: 'gold',
+    // },
+    // {
+    //   label: 'Reports',
+    //   href: '/reports',
+    //   icon: BarChart3,
+    // },
+    // {
+    //   label: 'Staff & Settings',
+    //   href: '/staff',
+    //   icon: UserCog,
+    // },
+    // {
+    //   label: 'Audit Logs',
+    //   href: '/audit-logs',
+    //   icon: ShieldAlert,
+    // },
   ];
 
   const sidebarContent = (
@@ -94,7 +87,7 @@ export function AppSidebar({
       <div>
         <div className="flex h-18 items-center justify-between border-b border-[#E8E6DF] px-4">
           <NextLink
-            href="/"
+            href="/guests"
             className="flex items-center gap-3 overflow-hidden"
             onClick={() => setIsMobileOpen(false)}
           >
@@ -146,14 +139,12 @@ export function AppSidebar({
                   isActive
                     ? 'bg-[#202923] text-white shadow-xs font-semibold'
                     : 'text-[#777C77] hover:bg-[#F7F6F2] hover:text-[#202923]'
-                } ${item.highlight && !isActive ? 'border border-[#E8DEC8] bg-[#FDFBF7] text-[#8F6F2E]' : ''}`}
+                }`}
                 title={isCollapsed ? item.label : undefined}
               >
                 <Icon
                   className={`h-4 w-4 shrink-0 transition-colors ${
                     isActive
-                      ? 'text-[#B69A65]'
-                      : item.highlight
                       ? 'text-[#B69A65]'
                       : 'text-[#777C77] group-hover:text-[#202923]'
                   }`}

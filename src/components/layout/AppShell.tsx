@@ -83,13 +83,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <nav aria-label="Mobile Navigation" className="fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-[#E8E6DF] md:hidden px-3 py-1.5 shadow-xl">
         <div className="grid grid-cols-5 items-center justify-around text-center">
           <Link
-            href="/"
+            href="/dashboard"
             className={`flex flex-col items-center py-1 text-[10px] font-medium transition-colors ${
-              pathname === '/' ? 'text-[#8F6F2E] font-bold' : 'text-[#777C77] hover:text-[#202923]'
+              pathname.startsWith('/dashboard') ? 'text-[#8F6F2E] font-bold' : 'text-[#777C77] hover:text-[#202923]'
             }`}
           >
             <LayoutDashboard className="h-4 w-4 mb-0.5" />
-            Home
+            Dashboard
           </Link>
 
           <Link

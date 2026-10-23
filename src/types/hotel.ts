@@ -1,21 +1,10 @@
-export type GuestTier = 'Standard' | 'Silver Preferred' | 'Gold VIP' | 'Platinum Elite' | 'Royal Ambassador';
+export type GuestTier = 'AC' | 'Non AC' | 'Standard' | 'Silver Preferred' | 'Gold VIP' | 'Platinum Elite' | 'Royal Ambassador';
 
 export type VerificationStatus = 'Verified' | 'Pending Verification' | 'Expired' | 'Rejected';
 
 export type RoomStatus = 'Available' | 'Occupied' | 'Reserved' | 'Cleaning' | 'Maintenance';
 
-export type RoomType = 
-  | 'Maharaja Presidential Suite'
-  | 'Royal Haveli Suite'
-  | 'Palace Courtyard Villa'
-  | 'Heritage Grand Suite'
-  | 'Deluxe Lake View Room'
-  | 'Classic Luxury Room'
-  | 'Presidential Penthouse Suite'
-  | 'Royal Oceanfront Villa'
-  | 'Executive Grand Suite'
-  | 'Deluxe King Sanctuary'
-  | 'Garden Terrace Suite';
+export type RoomType = 'AC' | 'Non AC' | string;
 
 export type ReservationStatus = 'Confirmed' | 'Checked-In' | 'Completed' | 'Cancelled' | 'No-Show';
 

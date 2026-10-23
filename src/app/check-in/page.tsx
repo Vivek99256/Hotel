@@ -23,6 +23,7 @@ import {
   Printer,
   ChevronRight,
   Clock,
+  FolderOpen,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { Guest, Room } from '@/types/hotel';
@@ -442,9 +443,31 @@ function CheckInContent() {
                     <span className="text-[11px] font-semibold text-[#202923]">
                       Customer ID Proof Photo on File:
                     </span>
-                    <span className="text-[10px] text-[#2E6F4E] font-medium bg-[#E8F5E9] px-2 py-0.5 rounded-full">
-                      ✓ Supabase Live Archive
-                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!selectedGuest) return;
+                        try {
+                          await fetch('/api/open-guest-folder', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              guestName: selectedGuest.fullName,
+                              guestId: selectedGuest.id,
+                              frontImage: selectedGuest.document?.documentImageUrl,
+                              backImage: selectedGuest.document?.documentBackImageUrl,
+                            }),
+                          });
+                        } catch (e) {
+                          console.error('Error opening guest folder:', e);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 text-[10px] text-[#2E6F4E] hover:text-[#1B4332] font-semibold bg-[#E8F5E9] hover:bg-[#D4EDDA] border border-[#C8E8D7] px-2.5 py-0.5 rounded-full cursor-pointer transition-all shadow-2xs hover:shadow-xs active:scale-95"
+                      title="Open guest photos folder in Windows File Explorer"
+                    >
+                      <FolderOpen className="h-3 w-3 text-[#2E6F4E]" />
+                      Open Local Folder
+                    </button>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     {selectedGuest.document?.documentImageUrl ? (

@@ -31,6 +31,7 @@ export default function RoomsPage() {
 
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [floorFilter, setFloorFilter] = useState<string>('All');
+  const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRoomForStatus, setSelectedRoomForStatus] = useState<Room | null>(null);
@@ -50,6 +51,7 @@ export default function RoomsPage() {
     return rooms.filter((room) => {
       if (statusFilter !== 'All' && room.status !== statusFilter) return false;
       if (floorFilter !== 'All' && room.floor.toString() !== floorFilter) return false;
+      if (categoryFilter !== 'All' && room.type !== categoryFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchNumber = room.roomNumber.includes(q);
@@ -59,7 +61,7 @@ export default function RoomsPage() {
       }
       return true;
     });
-  }, [rooms, statusFilter, floorFilter, searchQuery]);
+  }, [rooms, statusFilter, floorFilter, categoryFilter, searchQuery]);
 
   return (
     <div className="space-y-6">
@@ -155,19 +157,34 @@ export default function RoomsPage() {
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <span className="text-xs text-[#777C77]">Floor:</span>
-          <select
-            value={floorFilter}
-            onChange={(e) => setFloorFilter(e.target.value)}
-            className="rounded-xl border border-[#E8E6DF] bg-[#FAF9F6] px-3 py-1.5 text-xs text-[#202923] focus:border-[#B69A65] focus:outline-none"
-          >
-            <option value="All">All Floors (1 to 4)</option>
-            <option value="4">Floor 4 — Presidential Penthouses</option>
-            <option value="3">Floor 3 — Executive Grand Suites</option>
-            <option value="2">Floor 2 — Deluxe Sanctuaries</option>
-            <option value="1">Floor 1 — Oceanfront Villas & Gardens</option>
-          </select>
+        <div className="flex items-center gap-2.5 flex-wrap w-full sm:w-auto">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[#777C77]">Category:</span>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="rounded-xl border border-[#E8E6DF] bg-[#FAF9F6] px-3 py-1.5 text-xs text-[#202923] focus:border-[#B69A65] focus:outline-none"
+            >
+              <option value="All">All Categories</option>
+              <option value="AC">AC</option>
+              <option value="Non AC">Non AC</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[#777C77]">Floor:</span>
+            <select
+              value={floorFilter}
+              onChange={(e) => setFloorFilter(e.target.value)}
+              className="rounded-xl border border-[#E8E6DF] bg-[#FAF9F6] px-3 py-1.5 text-xs text-[#202923] focus:border-[#B69A65] focus:outline-none"
+            >
+              <option value="All">All Floors</option>
+              <option value="1">Floor 1</option>
+              <option value="2">Floor 2</option>
+              <option value="3">Floor 3</option>
+              <option value="4">Floor 4</option>
+            </select>
+          </div>
         </div>
       </div>
 

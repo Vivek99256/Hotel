@@ -26,7 +26,7 @@ export function GuestRegistrationModal({
     lastName: '',
     email: '',
     phone: '',
-    tier: 'Gold VIP' as GuestTier,
+    tier: 'AC' as GuestTier,
     nationality: 'Indian',
     city: 'Ahmedabad',
     country: 'India',
@@ -129,7 +129,7 @@ export function GuestRegistrationModal({
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError('');
     if (!validate()) return;
@@ -146,13 +146,61 @@ export function GuestRegistrationModal({
 
     setIsSubmitting(true);
     try {
+      const guestFullName = `${formData.firstName.trim()} ${formData.lastName.trim()}`;
       const docMasked = maskDocumentNumber(formData.documentNumber, formData.documentType);
+
+      const rawFront =
+        documentFrontImage ||
+        (formData.documentType === 'PAN Card'
+          ? generatePanCardSvg(guestFullName, docMasked, formData.city)
+          : generateAadhaarFrontSvg(guestFullName, docMasked, formData.city));
+
+      const rawBack =
+        documentBackImage ||
+        (formData.documentType === 'Aadhaar Card'
+          ? generateAadhaarBackSvg(formData.address, formData.city)
+          : undefined);
+
+      let localFrontUrl = rawFront;
+      let localBackUrl = rawBack;
+
+      try {
+        if (rawFront) {
+          const res = await fetch('/api/upload-guest-doc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              guestName: guestFullName,
+              side: 'front',
+              base64: rawFront,
+            }),
+          });
+          const d = await res.json();
+          if (d.success && d.url) localFrontUrl = d.url;
+        }
+
+        if (rawBack) {
+          const res = await fetch('/api/upload-guest-doc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              guestName: guestFullName,
+              side: 'back',
+              base64: rawBack,
+            }),
+          });
+          const d = await res.json();
+          if (d.success && d.url) localBackUrl = d.url;
+        }
+      } catch (err) {
+        console.warn('Failed to save guest photo locally during registration:', err);
+      }
 
       const newGuest = addGuest(
         {
           firstName: formData.firstName.trim(),
           lastName: formData.lastName.trim(),
-          fullName: `${formData.firstName.trim()} ${formData.lastName.trim()}`,
+          fullName: guestFullName,
           email: formData.email.trim() || `${formData.firstName.toLowerCase()}.${formData.lastName.toLowerCase()}@example.in`,
           phone: formData.phone.trim(),
           tier: formData.tier,
@@ -170,16 +218,8 @@ export function GuestRegistrationModal({
             expiryDate: formData.documentExpiry,
             verifiedAt: new Date().toISOString(),
             verifiedBy: 'Priya Patel (Front Desk Mgr)',
-            documentImageUrl:
-              documentFrontImage ||
-              (formData.documentType === 'PAN Card'
-                ? generatePanCardSvg(`${formData.firstName} ${formData.lastName}`, docMasked, formData.city)
-                : generateAadhaarFrontSvg(`${formData.firstName} ${formData.lastName}`, docMasked, formData.city)),
-            documentBackImageUrl:
-              documentBackImage ||
-              (formData.documentType === 'Aadhaar Card'
-                ? generateAadhaarBackSvg(formData.address, formData.city)
-                : undefined),
+            documentImageUrl: localFrontUrl,
+            documentBackImageUrl: localBackUrl,
             status: 'Verified',
           },
           preferences: {
@@ -530,17 +570,14 @@ export function GuestRegistrationModal({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-[#202923] mb-1">VIP Recognition Tier</label>
+                  <label className="block text-xs font-medium text-[#202923] mb-1">Room Category</label>
                   <select
                     value={formData.tier}
                     onChange={(e) => setFormData({ ...formData, tier: e.target.value as GuestTier })}
                     className="w-full rounded-xl border border-[#E8E6DF] bg-white px-3 py-2 text-xs sm:text-sm focus:border-[#B69A65]"
                   >
-                    <option value="Standard">Standard Guest</option>
-                    <option value="Silver Preferred">Silver Preferred</option>
-                    <option value="Gold VIP">Gold VIP</option>
-                    <option value="Platinum Elite">Platinum Elite</option>
-                    <option value="Royal Ambassador">Royal Ambassador</option>
+                    <option value="AC">AC</option>
+                    <option value="Non AC">Non AC</option>
                   </select>
                 </div>
               </div>
@@ -548,10 +585,15 @@ export function GuestRegistrationModal({
 
             {/* ID Proof & Photo Upload Section */}
             <div className="border-t border-[#E8E6DF] pt-4">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-[#777C77] mb-3 flex items-center gap-1.5">
-                <Shield className="h-4 w-4 text-[#B69A65]" />
-                Customer ID Proof & Document Photos
-              </h4>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[#777C77] flex items-center gap-1.5">
+                  <Shield className="h-4 w-4 text-[#B69A65]" />
+                  Customer ID Proof & Document Photos
+                </h4>
+                <span className="text-[10px] text-[#2E6F4E] font-medium bg-[#E8F5E9] px-2 py-0.5 rounded-full border border-[#C8E8D7]">
+                  Saved to Local Guest Folder
+                </span>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 mb-4">
                 <div>
@@ -681,7 +723,7 @@ export function GuestRegistrationModal({
             </div>
 
             {/* Food & Preferences */}
-            <div className="border-t border-[#E8E6DF] pt-4">
+            {/* <div className="border-t border-[#E8E6DF] pt-4">
               <h4 className="text-xs font-bold uppercase tracking-wider text-[#777C77] mb-3 flex items-center gap-1.5">
                 <Sparkles className="h-4 w-4 text-[#B69A65]" />
                 Food & Stay Preferences
@@ -710,7 +752,7 @@ export function GuestRegistrationModal({
                   />
                 </div>
               </div>
-            </div>
+            </div> */}
 
             {/* Sticky/Footer Save Buttons */}
             <div className="pt-3 border-t border-[#E8E6DF] flex items-center justify-end gap-3 shrink-0">

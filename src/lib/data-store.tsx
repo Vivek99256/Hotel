@@ -11,6 +11,8 @@ import {
   IdentityDocument,
   CheckInPayload,
   RoomStatus,
+  RoomType,
+  GuestTier,
 } from '@/types/hotel';
 import {
   INITIAL_GUESTS,
@@ -257,6 +259,24 @@ const STORAGE_KEYS = {
   NOTIFICATIONS: 'royal_haveli_notifications_v2',
 };
 
+const normalizeRoomCategory = (type?: string): RoomType => {
+  if (type === 'AC' || type === 'Non AC') return type;
+  const t = (type || '').toLowerCase();
+  if (t.includes('non') || t.includes('classic') || t.includes('standard')) {
+    return 'Non AC';
+  }
+  return 'AC';
+};
+
+const normalizeGuestTier = (tier?: string): GuestTier => {
+  if (tier === 'AC' || tier === 'Non AC') return tier;
+  const t = (tier || '').toLowerCase();
+  if (t.includes('non') || t.includes('standard') || t.includes('silver')) {
+    return 'Non AC';
+  }
+  return 'AC';
+};
+
 export function HotelProvider({ children }: { children: React.ReactNode }) {
   const [guests, setGuests] = useState<Guest[]>(INITIAL_GUESTS);
   const [rooms, setRooms] = useState<Room[]>(INITIAL_ROOMS);
@@ -301,10 +321,19 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
 
       if (storedGuests) {
         const parsedGuests = JSON.parse(storedGuests);
-        const cleanGuests = deduplicateGuests(parsedGuests);
+        const cleanGuests = deduplicateGuests(parsedGuests).map((g: any) => ({
+          ...g,
+          tier: normalizeGuestTier(g.tier),
+        }));
         setGuests(cleanGuests);
       }
-      if (storedRooms) setRooms(JSON.parse(storedRooms));
+      if (storedRooms) {
+        const parsedRooms = JSON.parse(storedRooms).map((r: any) => ({
+          ...r,
+          type: normalizeRoomCategory(r.type),
+        }));
+        setRooms(parsedRooms);
+      }
       if (storedReservations) setReservations(JSON.parse(storedReservations));
       if (storedAuditLogs) setAuditLogs(JSON.parse(storedAuditLogs));
       if (storedNotifs) setNotifications(JSON.parse(storedNotifs));
@@ -503,7 +532,7 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         avatarUrl:
           guestData.avatarUrl ||
           `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=160&auto=format&fit=crop&q=80`,
-        tier: guestData.tier || 'Gold VIP',
+        tier: normalizeGuestTier(guestData.tier || 'AC'),
         nationality: guestData.nationality || 'Indian',
         city: guestData.city || 'Ahmedabad',
         country: guestData.country || 'India',
@@ -709,8 +738,8 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         id: `RM-${roomNum}`,
         roomNumber: roomNum,
         floor: Number(roomData.floor || 1),
-        type: roomData.type || 'Royal Haveli Suite',
-        pricePerNight: Number(roomData.pricePerNight || 12500),
+        type: normalizeRoomCategory(roomData.type || 'AC'),
+        pricePerNight: Number(roomData.pricePerNight || (roomData.type === 'Non AC' ? 1000 : 1500)),
         status: roomData.status || 'Available',
         capacity: Number(roomData.capacity || 2),
         bedConfiguration: roomData.bedConfiguration || '1 King Size Royal Bed',

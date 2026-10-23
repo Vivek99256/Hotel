@@ -17,8 +17,8 @@ export function AddRoomModal({ isOpen, onClose, onRoomCreated }: AddRoomModalPro
 
   const [roomNumber, setRoomNumber] = useState('');
   const [floor, setFloor] = useState(1);
-  const [type, setType] = useState<RoomType>('Royal Haveli Suite');
-  const [pricePerNight, setPricePerNight] = useState(12500);
+  const [type, setType] = useState<RoomType>('AC');
+  const [pricePerNight, setPricePerNight] = useState(1500);
   const [capacity, setCapacity] = useState(2);
   const [bedConfiguration, setBedConfiguration] = useState('1 King Size Royal Bed');
   const [squareMeters, setSquareMeters] = useState(75);
@@ -105,9 +105,9 @@ export function AddRoomModal({ isOpen, onClose, onRoomCreated }: AddRoomModalPro
               <BedDouble className="h-5 w-5 text-[#B69A65]" />
             </div>
             <div>
-              <h2 className="text-sm sm:text-base font-semibold text-[#202923]">Add New Room / Suite</h2>
+              <h2 className="text-sm sm:text-base font-semibold text-[#202923]">Add New Room</h2>
               <p className="text-xs text-[#777C77]">
-                Add a new luxury room or heritage villa to hotel inventory
+                Add an AC or Non AC room to hotel inventory
               </p>
             </div>
           </div>
@@ -167,27 +167,28 @@ export function AddRoomModal({ isOpen, onClose, onRoomCreated }: AddRoomModalPro
                   onChange={(e) => setFloor(Number(e.target.value))}
                   className="w-full rounded-xl border border-[#E8E6DF] bg-white px-3 py-2 text-xs sm:text-sm focus:border-[#B69A65]"
                 >
-                  <option value={1}>Floor 1 — Ground & Courtyard Level</option>
-                  <option value={2}>Floor 2 — Deluxe Sanctuaries</option>
-                  <option value={3}>Floor 3 — Executive Grand Suites</option>
-                  <option value={4}>Floor 4 — Maharaja Penthouses</option>
+                  <option value={1}>Floor 1</option>
+                  <option value={2}>Floor 2</option>
+                  <option value={3}>Floor 3</option>
+                  <option value={4}>Floor 4</option>
                 </select>
               </div>
 
               {/* Room Type */}
               <div className="sm:col-span-2">
-                <label className="block text-xs font-medium text-[#202923] mb-1">Room / Suite Category</label>
+                <label className="block text-xs font-medium text-[#202923] mb-1">Room Category</label>
                 <select
                   value={type}
-                  onChange={(e) => setType(e.target.value as RoomType)}
+                  onChange={(e) => {
+                    const newType = e.target.value as RoomType;
+                    setType(newType);
+                    if (newType === 'AC' && pricePerNight === 1000) setPricePerNight(1500);
+                    if (newType === 'Non AC' && pricePerNight === 1500) setPricePerNight(1000);
+                  }}
                   className="w-full rounded-xl border border-[#E8E6DF] bg-white px-3 py-2 text-xs sm:text-sm focus:border-[#B69A65]"
                 >
-                  <option value="Maharaja Presidential Suite">Maharaja Presidential Suite</option>
-                  <option value="Royal Haveli Suite">Royal Haveli Suite</option>
-                  <option value="Palace Courtyard Villa">Palace Courtyard Villa</option>
-                  <option value="Heritage Grand Suite">Heritage Grand Suite</option>
-                  <option value="Deluxe Lake View Room">Deluxe Lake View Room</option>
-                  <option value="Classic Luxury Room">Classic Luxury Room</option>
+                  <option value="AC">AC</option>
+                  <option value="Non AC">Non AC</option>
                 </select>
               </div>
 
