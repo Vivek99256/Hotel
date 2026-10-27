@@ -88,7 +88,7 @@ export function AppHeader({
             <span className="font-serif text-xs font-bold">RH</span>
           </div>
           <span className="font-serif text-xs font-bold text-[#202923] tracking-wide uppercase">
-            The Royal Haveli
+            Royals Inn
           </span>
         </div>
 

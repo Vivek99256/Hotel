@@ -51,7 +51,7 @@ export function generateAadhaarBackSvg(address: string, city: string): string {
     <rect x="435" y="191" width="30" height="30" fill="#FFFFFF"/>
     <text x="490" y="255" font-family="sans-serif" font-size="10" fill="#777C77" text-anchor="middle">Secure QR Code</text>
     <rect x="30" y="280" width="540" height="48" rx="8" fill="#E8DEC8"/>
-    <text x="300" y="310" font-family="sans-serif" font-size="12" font-weight="bold" fill="#8F6F2E" text-anchor="middle">The Royal Haveli Palace &amp; Resort • Verified Indian ID Document</text>
+    <text x="300" y="310" font-family="sans-serif" font-size="12" font-weight="bold" fill="#8F6F2E" text-anchor="middle">Royals Inn Palace &amp; Resort • Verified Indian ID Document</text>
     <text x="300" y="355" font-family="sans-serif" font-size="10" fill="#959A95" text-anchor="middle">Unique Identification Authority of India • 1947 Helpline</text>
   </svg>`;
   return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);

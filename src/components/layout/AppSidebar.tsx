@@ -100,7 +100,7 @@ export function AppSidebar({
               <div className="min-w-0 transition-opacity duration-200">
                 <div className="flex items-center gap-1.5">
                   <span className="font-serif text-sm font-semibold tracking-wide text-[#202923] uppercase">
-                    The Royal Haveli
+                    Royals Inn
                   </span>
                   <Sparkles className="h-3 w-3 text-[#B69A65]" />
                 </div>

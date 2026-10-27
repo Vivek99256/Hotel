@@ -18,7 +18,7 @@ const cormorant = Cormorant_Garamond({
 });
 
 export const metadata: Metadata = {
-  title: 'The Royal Haveli Palace & Resort | Luxury Heritage PMS (Udaipur)',
+  title: 'Royals Inn Palace & Resort | Luxury Heritage PMS (Udaipur)',
   description: 'Indian luxury heritage hotel management system, returning guest intelligence, Aadhaar/ID verification, and express check-in.',
   icons: {
     icon: '/favicon.ico',

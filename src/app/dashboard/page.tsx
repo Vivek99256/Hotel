@@ -82,7 +82,7 @@ export default function DashboardPage() {
             </span>
           </div>
           <p className="mt-1 text-xs text-[#777C77]">
-            Thursday, 22 October 2026 • The Royal Haveli Palace & Resort • Udaipur, Rajasthan
+            Thursday, 22 October 2026 • Royals Inn Palace & Resort • Udaipur, Rajasthan
           </p>
         </div>
 
