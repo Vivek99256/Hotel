@@ -104,9 +104,9 @@ export function AppSidebar({
                   </span>
                   <Sparkles className="h-3 w-3 text-[#B69A65]" />
                 </div>
-                <p className="text-[10px] font-medium tracking-widest text-[#777C77] uppercase">
+                {/* <p className="text-[10px] font-medium tracking-widest text-[#777C77] uppercase">
                   Udaipur • Palace & Resort
-                </p>
+                </p> */}
               </div>
             )}
           </NextLink>
@@ -190,9 +190,9 @@ export function AppSidebar({
                 Live Sync
               </span>
             </div>
-            <p className="mt-1 text-[11px] text-[#959A95]">
+            {/* <p className="mt-1 text-[11px] text-[#959A95]">
               Heritage PMS • Udaipur, Rajasthan
-            </p>
+            </p> */}
           </div>
         ) : (
           <div className="flex justify-center">
