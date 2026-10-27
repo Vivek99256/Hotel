@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 380" width="600" height="380">
+    <defs>
+      <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#FFFDF9"/>
+        <stop offset="50%" stop-color="#FFFFFF"/>
+        <stop offset="100%" stop-color="#F7FAF7"/>
+      </linearGradient>
+    </defs>
+    <rect width="600" height="380" rx="16" fill="url(#bg)" stroke="#B69A65" stroke-width="2"/>
+    <rect x="0" y="0" width="600" height="12" fill="#FF9933" rx="16 16 0 0"/>
+    <rect x="0" y="66" width="600" height="4" fill="#138808"/>
+    <text x="300" y="38" font-family="sans-serif" font-size="18" font-weight="bold" fill="#202923" text-anchor="middle">Government of India</text>
+    <text x="300" y="56" font-family="sans-serif" font-size="12" fill="#777C77" text-anchor="middle">Unique Identification Authority of India (UIDAI)</text>
+    <rect x="36" y="96" width="124" height="150" rx="8" fill="#202923" stroke="#D9D6CC" stroke-width="1.5"/>
+    <circle cx="98" cy="150" r="36" fill="#B69A65" opacity="0.85"/>
+    <path d="M58 220 Q98 185 138 220 Z" fill="#B69A65" opacity="0.85"/>
+    <text x="98" y="235" font-family="sans-serif" font-size="10" fill="#FFFFFF" text-anchor="middle">GOVT PHOTO ID</text>
+    <text x="184" y="125" font-family="sans-serif" font-size="12" fill="#777C77">Name:</text>
+    <text x="184" y="148" font-family="sans-serif" font-size="17" font-weight="bold" fill="#202923">Rajeshbhai Mehta</text>
+    <text x="184" y="178" font-family="sans-serif" font-size="12" fill="#777C77">Date of Birth: 18/06/1974</text>
+    <text x="184" y="202" font-family="sans-serif" font-size="12" fill="#777C77">City: Ahmedabad, India</text>
+    <text x="184" y="228" font-family="sans-serif" font-size="12" fill="#138808" font-weight="bold">✓ AADHAAR CARD VERIFIED</text>
+    <rect x="30" y="270" width="540" height="58" rx="10" fill="#202923"/>
+    <text x="300" y="307" font-family="monospace" font-size="22" font-weight="bold" fill="#FDFBF7" text-anchor="middle" letter-spacing="4">XXXX XXXX 9821</text>
+    <text x="300" y="321" font-family="sans-serif" font-size="10" fill="#B69A65" text-anchor="middle">Unique Identification Authority of India</text>
+    <text x="300" y="360" font-family="sans-serif" font-size="10" fill="#959A95" text-anchor="middle">Helpline: 1947 • help@uidai.gov.in • www.uidai.gov.in</text>
+  </svg>

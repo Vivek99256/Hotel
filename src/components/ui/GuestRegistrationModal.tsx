@@ -28,7 +28,7 @@ export function GuestRegistrationModal({
     phone: '',
     tier: 'AC' as GuestTier,
     nationality: 'Indian',
-    city: 'Ahmedabad',
+    city: 'Navsari',
     country: 'India',
     address: 'Satellite, Ahmedabad, Gujarat',
     roomTemperature: '21.5°C',
@@ -564,7 +564,7 @@ export function GuestRegistrationModal({
                     type="text"
                     value={formData.city}
                     onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                    placeholder="e.g. Ahmedabad, Surat, Mumbai"
+                    placeholder="e.g. Navsari"
                     className="w-full rounded-xl border border-[#E8E6DF] px-3 py-2 text-xs sm:text-sm focus:border-[#B69A65]"
                   />
                 </div>

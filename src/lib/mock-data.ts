@@ -4,7 +4,7 @@ import { generateAadhaarFrontSvg, generateAadhaarBackSvg, generatePanCardSvg } f
 export const INITIAL_STAFF: StaffUser[] = [
   {
     id: 'STF-01',
-    name: 'Vikramaditya Rathore',
+    name: 'Abhisek Parmar',
     email: 'gm@royalhavelihotel.in',
     role: 'Hotel Director',
     avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
@@ -232,7 +232,7 @@ export const INITIAL_GUESTS: Guest[] = [
       issuingCountry: 'India',
       expiryDate: '2034-03-20',
       verifiedAt: '2026-06-10T11:00:00Z',
-      verifiedBy: 'Vikramaditya Rathore (GM)',
+      verifiedBy: 'Abhisek Parmar (GM)',
       documentImageUrl: generateAadhaarFrontSvg('Maharaj Vikramaditya Singhania', 'XXXX XXXX 5590', 'Jaipur', '03/04/1969'),
       documentBackImageUrl: generateAadhaarBackSvg('The Singhania Kothi, Civil Lines', 'Jaipur'),
       status: 'Verified',
@@ -910,7 +910,7 @@ export const INITIAL_AUDIT_LOGS: AuditLog[] = [
     timestamp: '2026-10-21T11:20:00Z',
     action: 'Added New Luxury Room',
     category: 'Room Status',
-    staffName: 'Vikramaditya Rathore',
+    staffName: 'Abhisek Parmar',
     staffRole: 'Hotel Director',
     target: 'Room 402 (Maharaja Presidential Suite)',
     details: 'Added Shahi Pool Villa to inventory at ₹48,000/night.',

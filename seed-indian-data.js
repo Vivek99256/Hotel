@@ -244,7 +244,7 @@ async function seedIndianData() {
         issuingCountry: 'India',
         expiryDate: '2034-03-20',
         verifiedAt: '2026-06-10T11:00:00Z',
-        verifiedBy: 'Vikramaditya Rathore (GM)',
+        verifiedBy: 'Abhisek Parmar (GM)',
         documentImageUrl: makeAadhaarFrontSvg('Maharaj Vikramaditya Singhania', 'XXXX XXXX 5590', 'Jaipur', '03/04/1969'),
         documentBackImageUrl: makeAadhaarBackSvg('The Singhania Kothi, Civil Lines', 'Jaipur'),
         status: 'Verified'
@@ -913,7 +913,7 @@ async function seedIndianData() {
       timestamp: '2026-10-21T11:20:00Z',
       action: 'Added New Luxury Room',
       category: 'Room Status',
-      staff_name: 'Vikramaditya Rathore',
+      staff_name: 'Abhisek Parmar',
       staff_role: 'General Manager',
       target: 'Room 402 (Maharaja Presidential Suite)',
       details: 'Added Shahi Pool Villa to inventory at ₹48,000/night.',
