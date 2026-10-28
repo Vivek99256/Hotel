@@ -25,6 +25,7 @@ export function OfflineSyncWidget() {
     lastSyncTime,
     pendingSyncCount,
     syncOfflineDataNow,
+    clearCompletedSyncQueue,
   } = useHotel();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -254,6 +255,19 @@ export function OfflineSyncWidget() {
                   <Layers className="h-3 w-3 text-[#8F6F2E]" />
                   Cached Operations ({syncQueue.length})
                 </span>
+                {syncQueue.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearCompletedSyncQueue();
+                      setFeedback('Cleared offline queue');
+                      setTimeout(() => setFeedback(null), 2500);
+                    }}
+                    className="text-[10px] text-red-600 hover:text-red-700 hover:underline font-medium"
+                  >
+                    Clear Queue
+                  </button>
+                )}
               </div>
 
               <div className="max-h-36 overflow-y-auto rounded-xl border border-[#E8E6DF] bg-white divide-y divide-[#E8E6DF]/60 p-1">
@@ -266,46 +280,57 @@ export function OfflineSyncWidget() {
                   syncQueue.map((item) => (
                     <div
                       key={item.id}
-                      className="p-2 flex items-center justify-between hover:bg-[#FAF9F5] transition-colors rounded-lg text-xs"
+                      className="p-2 hover:bg-[#FAF9F5] transition-colors rounded-lg text-xs"
                     >
-                      <div className="min-w-0 flex-1 pr-2">
-                        <div className="flex items-center gap-1.5">
-                          <span
-                            className={`rounded px-1 py-0.2 text-[8px] font-bold uppercase tracking-wider ${
-                              item.entity === 'guest'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : item.entity === 'room'
-                                ? 'bg-blue-100 text-blue-800'
-                                : item.entity === 'reservation'
-                                ? 'bg-purple-100 text-purple-800'
-                                : 'bg-gray-100 text-gray-800'
-                            }`}
-                          >
-                            {item.entity}
-                          </span>
-                          <span className="text-[11px] font-medium text-[#202923] truncate">
-                            {item.title}
-                          </span>
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0 flex-1 pr-2">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`rounded px-1 py-0.2 text-[8px] font-bold uppercase tracking-wider ${
+                                item.entity === 'guest'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : item.entity === 'room'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : item.entity === 'reservation'
+                                  ? 'bg-purple-100 text-purple-800'
+                                  : 'bg-gray-100 text-gray-800'
+                              }`}
+                            >
+                              {item.entity}
+                            </span>
+                            <span className="text-[11px] font-medium text-[#202923] truncate">
+                              {item.title}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5 text-[9px] text-[#777C77]">
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-2 w-2" />
+                              {formatElapsed(item.createdAtEpoch)}
+                            </span>
+                            <span>•</span>
+                            <span className="font-mono">{item.id.slice(-6)}</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5 text-[9px] text-[#777C77]">
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-2 w-2" />
-                            {formatElapsed(item.createdAtEpoch)}
-                          </span>
-                          <span>•</span>
-                          <span className="font-mono">{item.id.slice(-6)}</span>
-                        </div>
+
+                        <span
+                          className={`text-[9px] rounded px-1.5 py-0.5 font-medium shrink-0 ${
+                            item.status === 'failed'
+                              ? 'text-red-700 bg-red-50 border border-red-200'
+                              : 'text-amber-700 bg-amber-50 border border-amber-200'
+                          }`}
+                        >
+                          {item.status === 'failed' ? 'Retry' : 'Queued'}
+                        </span>
                       </div>
 
-                      <span
-                        className={`text-[9px] rounded px-1.5 py-0.5 font-medium shrink-0 ${
-                          item.status === 'failed'
-                            ? 'text-red-700 bg-red-50 border border-red-200'
-                            : 'text-amber-700 bg-amber-50 border border-amber-200'
-                        }`}
-                      >
-                        {item.status === 'failed' ? 'Retry' : 'Queued'}
-                      </span>
+                      {item.status === 'failed' && item.error && (
+                        <p
+                          className="mt-1 text-[9px] text-red-600 bg-red-50/60 rounded px-1.5 py-0.5 font-mono line-clamp-1"
+                          title={item.error}
+                        >
+                          {item.error}
+                        </p>
+                      )}
                     </div>
                   ))
                 )}

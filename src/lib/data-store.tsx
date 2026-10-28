@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
 import {
   Guest,
   Room,
@@ -311,6 +311,18 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
+  // High-performance refs to prevent stale closures and infinite cascades
+  const syncQueueRef = useRef<OfflineSyncItem[]>([]);
+  const isSyncingRef = useRef<boolean>(false);
+  const syncOfflineDataNowRef = useRef<
+    () => Promise<{ success: boolean; syncedCount: number; errors: string[] }>
+  >(async () => ({ success: false, syncedCount: 0, errors: [] }));
+
+  // Keep syncQueueRef in sync with state
+  useEffect(() => {
+    syncQueueRef.current = syncQueue;
+  }, [syncQueue]);
+
   // Save changes to localStorage
   const persistState = useCallback(
     (key: string, data: unknown) => {
@@ -322,6 +334,23 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
     },
     []
   );
+
+  // Network request wrapper with strict timeout to prevent indefinite UI hangs
+  const withTimeout = async <T,>(
+    promise: PromiseLike<T>,
+    timeoutMs = 5000,
+    timeoutMessage = 'Database request timed out'
+  ): Promise<T> => {
+    let timer: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
 
   // Sync queued offline actions to Supabase live database
   const syncOfflineDataNow = useCallback(async (): Promise<{
@@ -346,13 +375,21 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    // Read latest from localStorage to ensure we have all queued changes
+    if (isSyncingRef.current) {
+      return {
+        success: false,
+        syncedCount: 0,
+        errors: ['Synchronization already in progress.'],
+      };
+    }
+
+    // Read latest from localStorage or memory ref
     let queueToProcess: OfflineSyncItem[] = [];
     try {
       const stored = localStorage.getItem(STORAGE_KEYS.OFFLINE_QUEUE);
-      queueToProcess = stored ? JSON.parse(stored) : syncQueue;
+      queueToProcess = stored ? JSON.parse(stored) : syncQueueRef.current;
     } catch {
-      queueToProcess = syncQueue;
+      queueToProcess = syncQueueRef.current;
     }
 
     if (!queueToProcess || queueToProcess.length === 0) {
@@ -363,111 +400,169 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (!isSupabaseConfigured) {
+      // Supabase is not configured, records remain safely in localStorage
+      syncQueueRef.current = [];
       setSyncQueue([]);
       persistState(STORAGE_KEYS.OFFLINE_QUEUE, []);
+      const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setLastSyncTime(nowTime);
+      persistState(STORAGE_KEYS.LAST_SYNC_TIME, nowTime);
       return { success: true, syncedCount: queueToProcess.length, errors: [] };
     }
 
+    isSyncingRef.current = true;
     setIsSyncing(true);
+
     const remainingQueue: OfflineSyncItem[] = [];
     const errors: string[] = [];
     let syncedCount = 0;
 
-    for (let i = 0; i < queueToProcess.length; i++) {
-      const item = queueToProcess[i];
-      try {
-        let opError: any = null;
+    try {
+      for (let i = 0; i < queueToProcess.length; i++) {
+        const item = queueToProcess[i];
+        try {
+          let opError: any = null;
 
-        if (item.entity === 'guest') {
-          if (item.action === 'upsert' || item.action === 'insert') {
-            const { error } = await supabase.from('guests').upsert([item.payload], { onConflict: 'id' });
-            opError = error;
-          } else if (item.action === 'update') {
-            const { error } = await supabase
-              .from('guests')
-              .update(item.payload)
-              .eq(item.matchColumn || 'id', item.matchValue);
-            opError = error;
-          } else if (item.action === 'delete') {
-            const { error } = await supabase
-              .from('guests')
-              .delete()
-              .eq(item.matchColumn || 'id', item.matchValue);
-            opError = error;
+          if (item.entity === 'guest') {
+            if (item.action === 'upsert' || item.action === 'insert') {
+              const res = await withTimeout(
+                supabase.from('guests').upsert([item.payload], { onConflict: 'id' }),
+                5000,
+                'Supabase connection timed out'
+              );
+              opError = res.error;
+            } else if (item.action === 'update') {
+              const res = await withTimeout(
+                supabase
+                  .from('guests')
+                  .update(item.payload)
+                  .eq(item.matchColumn || 'id', item.matchValue),
+                5000,
+                'Supabase connection timed out'
+              );
+              opError = res.error;
+            } else if (item.action === 'delete') {
+              const res = await withTimeout(
+                supabase
+                  .from('guests')
+                  .delete()
+                  .eq(item.matchColumn || 'id', item.matchValue),
+                5000,
+                'Supabase connection timed out'
+              );
+              opError = res.error;
+            }
+          } else if (item.entity === 'room') {
+            if (item.action === 'upsert' || item.action === 'insert') {
+              const res = await withTimeout(
+                supabase.from('rooms').upsert([item.payload], { onConflict: 'room_number' }),
+                5000,
+                'Supabase connection timed out'
+              );
+              opError = res.error;
+            } else if (item.action === 'update') {
+              const res = await withTimeout(
+                supabase
+                  .from('rooms')
+                  .update(item.payload)
+                  .eq(item.matchColumn || 'room_number', item.matchValue),
+                5000,
+                'Supabase connection timed out'
+              );
+              opError = res.error;
+            } else if (item.action === 'delete') {
+              const res = await withTimeout(
+                supabase
+                  .from('rooms')
+                  .delete()
+                  .eq(item.matchColumn || 'room_number', item.matchValue),
+                5000,
+                'Supabase connection timed out'
+              );
+              opError = res.error;
+            }
+          } else if (item.entity === 'reservation') {
+            if (item.action === 'upsert' || item.action === 'insert') {
+              const res = await withTimeout(
+                supabase.from('reservations').upsert([item.payload], { onConflict: 'id' }),
+                5000,
+                'Supabase connection timed out'
+              );
+              opError = res.error;
+            } else if (item.action === 'update') {
+              const res = await withTimeout(
+                supabase
+                  .from('reservations')
+                  .update(item.payload)
+                  .eq(item.matchColumn || 'id', item.matchValue),
+                5000,
+                'Supabase connection timed out'
+              );
+              opError = res.error;
+            } else if (item.action === 'delete') {
+              const res = await withTimeout(
+                supabase
+                  .from('reservations')
+                  .delete()
+                  .eq(item.matchColumn || 'id', item.matchValue),
+                5000,
+                'Supabase connection timed out'
+              );
+              opError = res.error;
+            }
+          } else if (item.entity === 'audit_log') {
+            const res = await withTimeout(
+              supabase.from('audit_logs').insert([item.payload]),
+              5000,
+              'Supabase connection timed out'
+            );
+            opError = res.error;
           }
-        } else if (item.entity === 'room') {
-          if (item.action === 'upsert' || item.action === 'insert') {
-            const { error } = await supabase.from('rooms').upsert([item.payload], { onConflict: 'room_number' });
-            opError = error;
-          } else if (item.action === 'update') {
-            const { error } = await supabase
-              .from('rooms')
-              .update(item.payload)
-              .eq(item.matchColumn || 'room_number', item.matchValue);
-            opError = error;
-          } else if (item.action === 'delete') {
-            const { error } = await supabase
-              .from('rooms')
-              .delete()
-              .eq(item.matchColumn || 'room_number', item.matchValue);
-            opError = error;
-          }
-        } else if (item.entity === 'reservation') {
-          if (item.action === 'upsert' || item.action === 'insert') {
-            const { error } = await supabase.from('reservations').upsert([item.payload], { onConflict: 'id' });
-            opError = error;
-          } else if (item.action === 'update') {
-            const { error } = await supabase
-              .from('reservations')
-              .update(item.payload)
-              .eq(item.matchColumn || 'id', item.matchValue);
-            opError = error;
-          } else if (item.action === 'delete') {
-            const { error } = await supabase
-              .from('reservations')
-              .delete()
-              .eq(item.matchColumn || 'id', item.matchValue);
-            opError = error;
-          }
-        } else if (item.entity === 'audit_log') {
-          const { error } = await supabase.from('audit_logs').upsert([item.payload], { onConflict: 'id' });
-          opError = error;
-        }
 
-        if (opError) {
-          throw new Error(opError.message);
-        } else {
-          syncedCount++;
-        }
-      } catch (err: any) {
-        console.warn(`Sync failed for item ${item.id} (${item.title}):`, err);
-        errors.push(`${item.title}: ${err.message || 'Connection error'}`);
-        remainingQueue.push({
-          ...item,
-          status: 'failed',
-          error: err.message || 'Network error',
-          retryCount: (item.retryCount || 0) + 1,
-        });
-
-        // Network break check
-        if (
-          err.message?.includes('Failed to fetch') ||
-          err.message?.includes('NetworkError') ||
-          (typeof navigator !== 'undefined' && !navigator.onLine)
-        ) {
-          setIsOnline(false);
-          // Append remaining unprocessed items
-          if (i + 1 < queueToProcess.length) {
-            remainingQueue.push(...queueToProcess.slice(i + 1));
+          if (opError) {
+            throw new Error(opError.message || opError.details || 'Supabase operation rejected');
+          } else {
+            syncedCount++;
           }
-          break;
+        } catch (err: any) {
+          const errMsg = err?.message || 'Connection error';
+          console.warn(`Sync failed for item ${item.id} (${item.title}):`, errMsg);
+          errors.push(`${item.title}: ${errMsg}`);
+          remainingQueue.push({
+            ...item,
+            status: 'failed',
+            error: errMsg,
+            retryCount: (item.retryCount || 0) + 1,
+          });
+
+          // Network or timeout break check - avoid blocking further items if cloud is unreachable
+          const isNetworkError =
+            errMsg.includes('timed out') ||
+            errMsg.includes('Failed to fetch') ||
+            errMsg.includes('NetworkError') ||
+            errMsg.includes('unreachable') ||
+            (typeof navigator !== 'undefined' && !navigator.onLine);
+
+          if (isNetworkError) {
+            setIsSupabaseConnected(false);
+            if (typeof navigator !== 'undefined' && !navigator.onLine) {
+              setIsOnline(false);
+            }
+            // Append remaining unprocessed items without waiting for each to timeout
+            if (i + 1 < queueToProcess.length) {
+              remainingQueue.push(...queueToProcess.slice(i + 1));
+            }
+            break;
+          }
         }
       }
+    } finally {
+      syncQueueRef.current = remainingQueue;
+      setSyncQueue(remainingQueue);
+      persistState(STORAGE_KEYS.OFFLINE_QUEUE, remainingQueue);
+      isSyncingRef.current = false;
+      setIsSyncing(false);
     }
-
-    setSyncQueue(remainingQueue);
-    persistState(STORAGE_KEYS.OFFLINE_QUEUE, remainingQueue);
-    setIsSyncing(false);
 
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setLastSyncTime(nowTime);
@@ -517,7 +612,12 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
       syncedCount,
       errors,
     };
-  }, [currentStaff.name, currentStaff.role, isSimulatedOffline, persistState, syncQueue]);
+  }, [currentStaff.name, currentStaff.role, isSimulatedOffline, persistState]);
+
+  // Keep latest sync function stored in ref to prevent stale closures
+  useEffect(() => {
+    syncOfflineDataNowRef.current = syncOfflineDataNow;
+  }, [syncOfflineDataNow]);
 
   // Enqueue an action to be saved offline and synced online
   const enqueueSyncItem = useCallback(
@@ -543,35 +643,42 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         retryCount: 0,
       };
 
-      setSyncQueue((prev) => {
-        const updated = [...prev, newItem];
-        persistState(STORAGE_KEYS.OFFLINE_QUEUE, updated);
-        return updated;
-      });
+      const updated = [...syncQueueRef.current, newItem];
+      syncQueueRef.current = updated;
+      setSyncQueue(updated);
+      persistState(STORAGE_KEYS.OFFLINE_QUEUE, updated);
 
       // If online and not simulated offline, trigger background sync
       if (typeof navigator !== 'undefined' && navigator.onLine && !isSimulatedOffline) {
         setTimeout(() => {
-          syncOfflineDataNow();
+          syncOfflineDataNowRef.current();
         }, 300);
       }
 
       return newItem;
     },
-    [isSimulatedOffline, persistState, syncOfflineDataNow]
+    [isSimulatedOffline, persistState]
   );
 
   const clearCompletedSyncQueue = useCallback(() => {
+    syncQueueRef.current = [];
     setSyncQueue([]);
     persistState(STORAGE_KEYS.OFFLINE_QUEUE, []);
   }, [persistState]);
+
+  // Auto-sync immediately when "Simulate Offline Mode" is toggled OFF
+  useEffect(() => {
+    if (!isSimulatedOffline && syncQueueRef.current.length > 0 && typeof navigator !== 'undefined' && navigator.onLine) {
+      syncOfflineDataNowRef.current();
+    }
+  }, [isSimulatedOffline]);
 
   // Network online/offline event listeners
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
       if (!isSimulatedOffline) {
-        syncOfflineDataNow();
+        syncOfflineDataNowRef.current();
       }
     };
     const handleOffline = () => {
@@ -587,9 +694,9 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [isSimulatedOffline, syncOfflineDataNow]);
+  }, [isSimulatedOffline]);
 
-  // Periodic sync check (every 10 seconds if queue has items)
+  // Periodic sync check (every 15 seconds if queue has items and not currently syncing)
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     const interval = setInterval(() => {
@@ -597,15 +704,15 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         typeof navigator !== 'undefined' &&
         navigator.onLine &&
         !isSimulatedOffline &&
-        syncQueue.length > 0 &&
-        !isSyncing
+        syncQueueRef.current.length > 0 &&
+        !isSyncingRef.current
       ) {
-        syncOfflineDataNow();
+        syncOfflineDataNowRef.current();
       }
-    }, 10000);
+    }, 15000);
 
     return () => clearInterval(interval);
-  }, [isSimulatedOffline, isSyncing, syncOfflineDataNow, syncQueue.length]);
+  }, [isSimulatedOffline]);
 
   // Hydrate from localStorage and Supabase on mount
   useEffect(() => {
@@ -796,7 +903,7 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
           console.info('Supabase live table sync notice:', err);
         });
     }
-  }, [isSimulatedOffline, persistState, syncOfflineDataNow]);
+  }, [isSimulatedOffline, persistState]);
 
   const addAuditLog = useCallback(
     (log: Omit<AuditLog, 'id' | 'timestamp'>) => {
@@ -811,27 +918,29 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
 
-      enqueueSyncItem({
-        entity: 'audit_log',
-        action: 'insert',
-        title: `Audit: ${newLog.action}`,
-        payload: {
-          id: newLog.id,
-          timestamp: newLog.timestamp,
-          action: newLog.action,
-          category: newLog.category,
-          staff_name: newLog.staffName,
-          staff_role: newLog.staffRole,
-          target: newLog.target,
-          details: newLog.details,
-          ip_address: newLog.ipAddress,
-          severity: newLog.severity,
-        },
-        matchColumn: 'id',
-        matchValue: newLog.id,
-      });
+      // Background non-blocking insert to Supabase if configured and online
+      if (isSupabaseConfigured && !isSimulatedOffline && typeof navigator !== 'undefined' && navigator.onLine) {
+        try {
+          Promise.resolve(
+            supabase.from('audit_logs').insert([
+              {
+                id: newLog.id,
+                timestamp: newLog.timestamp,
+                action: newLog.action,
+                category: newLog.category,
+                staff_name: newLog.staffName,
+                staff_role: newLog.staffRole,
+                target: newLog.target,
+                details: newLog.details,
+                ip_address: newLog.ipAddress,
+                severity: newLog.severity,
+              },
+            ])
+          ).catch(() => {});
+        } catch {}
+      }
     },
-    [enqueueSyncItem, persistState]
+    [isSimulatedOffline, persistState]
   );
 
   const addGuest = useCallback(
