@@ -6,6 +6,7 @@ import { useHotel } from '@/lib/data-store';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { GuestRegistrationModal } from '@/components/ui/GuestRegistrationModal';
+import { QuickStayConfirmModal } from '@/components/ui/QuickStayConfirmModal';
 import {
   KeyRound,
   LogOut,
@@ -48,6 +49,7 @@ function CheckInContent() {
 
   // Form State
   const [selectedGuestId, setSelectedGuestId] = useState<string>('');
+  const [quickConfirmGuest, setQuickConfirmGuest] = useState<Guest | null>(null);
   const [guestSearch, setGuestSearch] = useState<string>('');
   const [selectedRoomNumber, setSelectedRoomNumber] = useState<string>('');
   const [isRegisterOpen, setIsRegisterOpen] = useState<boolean>(false);
@@ -60,6 +62,11 @@ function CheckInContent() {
 
   // Processing & Success State
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [quickSuccessAlert, setQuickSuccessAlert] = useState<{
+    guestName: string;
+    roomNumber: string;
+    reservationId: string;
+  } | null>(null);
   const [checkInResult, setCheckInResult] = useState<{
     success: boolean;
     message: string;
@@ -97,6 +104,7 @@ function CheckInContent() {
       g.fullName.toLowerCase().includes(q) ||
       g.id.toLowerCase().includes(q) ||
       g.city.toLowerCase().includes(q) ||
+      (g.lastVisitDate && g.lastVisitDate.toLowerCase().includes(q)) ||
       (cleanNum.length >= 3 && g.phone.replace(/\D/g, '').includes(cleanNum))
     );
   });
@@ -190,6 +198,36 @@ function CheckInContent() {
           </button>
         </div>
       </div>
+
+      {/* Prominent Check-In Success Banner */}
+      {quickSuccessAlert && (
+        <div className="rounded-2xl border border-[#C8E8D7] bg-[#E8F5E9] p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center gap-3.5">
+            <div className="h-11 w-11 rounded-xl bg-[#2E6F4E] text-white flex items-center justify-center font-bold text-lg shrink-0 shadow-xs">
+              <CheckCircle2 className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-bold text-[#202923]">
+                  Check-In Confirmed Successfully!
+                </h3>
+                <span className="rounded-full bg-[#2E6F4E] text-white text-[10px] font-bold px-2 py-0.5">
+                  Room {quickSuccessAlert.roomNumber} Assigned
+                </span>
+              </div>
+              <p className="text-xs text-[#555E57] mt-0.5">
+                <strong>{quickSuccessAlert.guestName}</strong> is now checked into Room <strong>{quickSuccessAlert.roomNumber}</strong>. Stay entry recorded (Ref: {quickSuccessAlert.reservationId}).
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setQuickSuccessAlert(null)}
+            className="rounded-xl border border-[#C8E8D7] bg-white px-3.5 py-1.5 text-xs font-semibold text-[#2E6F4E] hover:bg-[#FAF9F6] transition-colors shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {activeTab === 'check-in' ? (
         /* ================= CHECK-IN WIZARD ================= */
@@ -343,12 +381,27 @@ function CheckInContent() {
                               Already In Room {guest.currentRoomNumber}
                             </span>
                           ) : (
-                            <button
-                              type="button"
-                              className="inline-flex items-center gap-1.5 rounded-lg bg-[#202923] px-3 py-1.5 text-xs font-medium text-white shadow-xs hover:bg-[#161D19]"
-                            >
-                              Select Guest <ArrowRight className="h-3 w-3" />
-                            </button>
+                            <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={() => setQuickConfirmGuest(guest)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-[#B69A65] bg-[#FDF9EE] px-2.5 py-1.5 text-xs font-semibold text-[#8F6F2E] hover:bg-[#FBEFD9] transition-all shadow-2xs cursor-pointer"
+                                title="1-Click Confirm Stay for Returning Patron"
+                              >
+                                <KeyRound className="h-3 w-3 text-[#B69A65]" />
+                                Quick Confirm Stay
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedGuestId(guest.id);
+                                  setStep(2);
+                                }}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-[#202923] px-3 py-1.5 text-xs font-medium text-white shadow-xs hover:bg-[#161D19]"
+                              >
+                                Full Wizard <ArrowRight className="h-3 w-3" />
+                              </button>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -968,6 +1021,23 @@ function CheckInContent() {
         onGuestCreated={(newId) => {
           setSelectedGuestId(newId);
           setStep(2);
+        }}
+      />
+
+      {/* Quick Stay Confirmation Modal */}
+      <QuickStayConfirmModal
+        isOpen={Boolean(quickConfirmGuest)}
+        onClose={() => setQuickConfirmGuest(null)}
+        guest={quickConfirmGuest}
+        onSuccess={(reservationId, roomNumber) => {
+          const gName = quickConfirmGuest?.fullName || 'Guest';
+          setQuickConfirmGuest(null);
+          setQuickSuccessAlert({
+            guestName: gName,
+            roomNumber,
+            reservationId,
+          });
+          resetWizard();
         }}
       />
     </div>

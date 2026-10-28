@@ -4,7 +4,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useHotel } from '@/lib/data-store';
 import { StatusBadge } from './StatusBadge';
-import { Search, X, User, ArrowRight, ShieldCheck, Calendar, MapPin, Key } from 'lucide-react';
+import { QuickStayConfirmModal } from './QuickStayConfirmModal';
+import { Search, X, User, ArrowRight, ShieldCheck, Calendar, MapPin, KeyRound } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import { Guest } from '@/types/hotel';
 
@@ -23,14 +24,17 @@ export function GlobalSearchModal({
   const { guests } = useHotel();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [quickStayGuest, setQuickStayGuest] = useState<Guest | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => inputRef.current?.focus(), 50);
       setSelectedIndex(0);
+      setQuickStayGuest(null);
     } else {
       setQuery('');
+      setQuickStayGuest(null);
     }
   }, [isOpen]);
 
@@ -86,11 +90,11 @@ export function GlobalSearchModal({
 
   const handleQuickCheckIn = (e: React.MouseEvent, guest: Guest) => {
     e.stopPropagation();
-    onClose();
     if (onSelectGuestForCheckIn) {
+      onClose();
       onSelectGuestForCheckIn(guest);
     } else {
-      router.push(`/check-in?guestId=${guest.id}`);
+      setQuickStayGuest(guest);
     }
   };
 
@@ -235,11 +239,11 @@ export function GlobalSearchModal({
                     {!guest.currentRoomNumber && (
                       <button
                         onClick={(e) => handleQuickCheckIn(e, guest)}
-                        title="Start Check-in for this guest"
-                        className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-[#B69A65] bg-white px-2.5 py-1 text-xs font-medium text-[#8F6F2E] hover:bg-[#FDF9EE] transition-colors"
+                        title="Confirm stay for returning guest"
+                        className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-[#B69A65] bg-[#FDF9EE] px-2.5 py-1 text-xs font-semibold text-[#8F6F2E] hover:bg-[#FBEFD9] transition-all shadow-2xs cursor-pointer"
                       >
-                        <Key className="h-3 w-3 text-[#B69A65]" />
-                        Check In
+                        <KeyRound className="h-3 w-3 text-[#B69A65]" />
+                        Confirm Stay
                       </button>
                     )}
 
@@ -271,6 +275,21 @@ export function GlobalSearchModal({
           </button>
         </div>
       </div>
+
+      {/* Quick Stay Confirmation Modal */}
+      <QuickStayConfirmModal
+        isOpen={Boolean(quickStayGuest)}
+        onClose={() => {
+          setQuickStayGuest(null);
+          onClose();
+        }}
+        guest={quickStayGuest}
+        onSuccess={() => {
+          if (quickStayGuest) {
+            router.push(`/guests/${quickStayGuest.id}`);
+          }
+        }}
+      />
     </div>
   );
 }

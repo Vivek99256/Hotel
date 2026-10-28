@@ -11,10 +11,11 @@ import {
   Hotel,
   KeyRound,
   RotateCcw,
+  Trash2,
 } from 'lucide-react';
 
 export default function StaffPage() {
-  const { currentStaff, setCurrentStaff, staffList, resetToDefaultData } = useHotel();
+  const { currentStaff, setCurrentStaff, staffList, resetToDefaultData, clearAllTestData } = useHotel();
 
   return (
     <div className="space-y-6">
@@ -29,18 +30,33 @@ export default function StaffPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            if (confirm('Reset PMS database to pristine luxury demonstration data?')) {
-              resetToDefaultData();
-              alert('Hotel database reset to pristine seed state.');
-            }
-          }}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-[#E8E6DF] bg-white px-3.5 py-2 text-xs font-medium text-[#777C77] hover:bg-[#FAF9F5] hover:text-[#B33A3A] transition-colors"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-          Reset Demo Data
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => {
+              if (confirm('Permanently wipe all test data for client handover? All test guests, stays, and room occupancies will be cleared.')) {
+                clearAllTestData();
+                alert('All test data has been cleared! System is clean and ready for your customer.');
+              }
+            }}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[#E8A5A5] bg-[#FDF2F2] px-3.5 py-2 text-xs font-semibold text-[#8C3A3A] hover:bg-[#FBE8E8] transition-colors cursor-pointer"
+          >
+            <Trash2 className="h-3.5 w-3.5 text-[#B33A3A]" />
+            Wipe Test Data (Client Handover)
+          </button>
+
+          <button
+            onClick={() => {
+              if (confirm('Reset PMS database to demonstration data?')) {
+                resetToDefaultData();
+                alert('Hotel database reset to seed demo state.');
+              }
+            }}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[#E8E6DF] bg-white px-3.5 py-2 text-xs font-medium text-[#777C77] hover:bg-[#FAF9F5] hover:text-[#B69A65] transition-colors cursor-pointer"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reset Demo Data
+          </button>
+        </div>
       </div>
 
       {/* Staff Roster Cards */}

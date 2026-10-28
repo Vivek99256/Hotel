@@ -246,6 +246,8 @@ interface HotelContextType {
   addAuditLog: (log: Omit<AuditLog, 'id' | 'timestamp'>) => void;
   markNotificationAsRead: (id: string) => void;
   markAllNotificationsAsRead: () => void;
+  deleteGuest: (guestId: string) => { success: boolean; message: string };
+  clearAllTestData: () => void;
   resetToDefaultData: () => void;
 }
 
@@ -647,6 +649,71 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
     [addAuditLog, currentStaff, persistState]
   );
 
+  const deleteGuest = useCallback(
+    (guestId: string) => {
+      const targetGuest = guests.find((g) => g.id === guestId);
+      if (!targetGuest) return { success: false, message: 'Guest profile not found' };
+
+      // 1. Remove from guests
+      setGuests((prev) => {
+        const updated = prev.filter((g) => g.id !== guestId);
+        persistState(STORAGE_KEYS.GUESTS, updated);
+        return updated;
+      });
+
+      // 2. If guest occupied a room, free up the room
+      setRooms((prev) => {
+        const updated = prev.map((r) => {
+          if (r.currentGuestId === guestId) {
+            return {
+              ...r,
+              status: 'Available' as RoomStatus,
+              currentGuestId: undefined,
+              currentGuestName: undefined,
+              currentStayCheckIn: undefined,
+              currentStayCheckOut: undefined,
+            };
+          }
+          return r;
+        });
+        persistState(STORAGE_KEYS.ROOMS, updated);
+        return updated;
+      });
+
+      // 3. Remove guest's reservations
+      setReservations((prev) => {
+        const updated = prev.filter((res) => res.guestId !== guestId);
+        persistState(STORAGE_KEYS.RESERVATIONS, updated);
+        return updated;
+      });
+
+      // 4. Supabase sync if configured
+      if (isSupabaseConfigured) {
+        supabase.from('guests').delete().eq('id', guestId).then(({ error }) => {
+          if (error) console.info('Supabase guest delete notice:', error.message);
+        });
+        supabase.from('reservations').delete().eq('guest_id', guestId).then(({ error }) => {
+          if (error) console.info('Supabase reservation delete notice:', error.message);
+        });
+      }
+
+      // 5. Add audit log
+      addAuditLog({
+        action: 'Deleted Guest Profile',
+        category: 'Guest Profile',
+        staffName: currentStaff.name,
+        staffRole: currentStaff.role,
+        target: `${targetGuest.fullName} (${targetGuest.id})`,
+        details: `Guest record removed from hotel system by ${currentStaff.name}. Any active room occupied was freed.`,
+        ipAddress: '192.168.1.10 (Terminal 1)',
+        severity: 'warning',
+      });
+
+      return { success: true, message: `Successfully deleted ${targetGuest.fullName}` };
+    },
+    [addAuditLog, currentStaff, guests, persistState]
+  );
+
   const updateGuestDocument = useCallback(
     (guestId: string, docUpdates: Partial<IdentityDocument>) => {
       setGuests((prev) => {
@@ -936,7 +1003,7 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
               ...g,
               currentRoomNumber: payload.roomNumber,
               currentStayId: newReservationId,
-              totalStays: g.totalStays + 1,
+              totalStays: (g.totalStays || 0) + 1,
               lastVisitDate: payload.checkInDate,
               verificationStatus: payload.identityVerified ? 'Verified' : g.verificationStatus,
             };
@@ -946,6 +1013,8 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         persistState(STORAGE_KEYS.GUESTS, updated);
         return updated;
       });
+
+      const nights = Math.max(1, Math.round((new Date(payload.checkOutDate).getTime() - new Date(payload.checkInDate).getTime()) / 86400000)) || 1;
 
       // 3. Create or update reservation
       const newReservation: Reservation = {
@@ -958,14 +1027,14 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         roomType: room.type,
         checkInDate: payload.checkInDate,
         checkOutDate: payload.checkOutDate,
-        nights: Math.max(1, Math.round((new Date(payload.checkOutDate).getTime() - new Date(payload.checkInDate).getTime()) / 86400000)) || 3,
+        nights,
         adults: payload.adults || 1,
         children: 0,
-        totalPrice: room.pricePerNight * 3,
-        paidAmount: payload.depositAmount || 0,
+        totalPrice: payload.depositAmount || (room.pricePerNight * nights),
+        paidAmount: payload.depositAmount || (room.pricePerNight * nights),
         status: 'Checked-In',
         specialRequests: payload.specialRequests,
-        paymentMethod: (payload.paymentMethod as Reservation['paymentMethod']) || 'Credit Card (Amex Black)',
+        paymentMethod: (payload.paymentMethod as Reservation['paymentMethod']) || 'Cash at Counter',
         createdAt: new Date().toISOString(),
       };
 
@@ -974,6 +1043,27 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         persistState(STORAGE_KEYS.RESERVATIONS, updated);
         return updated;
       });
+
+      // Supabase sync if configured
+      if (isSupabaseConfigured) {
+        supabase.from('guests').update({
+          current_room_number: payload.roomNumber,
+          last_visit_date: payload.checkInDate,
+          total_stays: (guest.totalStays || 0) + 1,
+        }).eq('id', guest.id).then(({ error }) => {
+          if (error) console.info('Supabase guest stay sync notice:', error.message);
+        });
+
+        supabase.from('rooms').update({
+          status: 'Occupied',
+          current_guest_id: guest.id,
+          current_guest_name: guest.fullName,
+          current_stay_check_in: payload.checkInDate,
+          current_stay_check_out: payload.checkOutDate,
+        }).eq('room_number', payload.roomNumber).then(({ error }) => {
+          if (error) console.info('Supabase room stay sync notice:', error.message);
+        });
+      }
 
       // 4. Log to Audit
       addAuditLog({
@@ -1054,6 +1144,26 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
 
+      // Supabase sync if configured
+      if (isSupabaseConfigured) {
+        if (guestId) {
+          supabase.from('guests').update({
+            current_room_number: null,
+          }).eq('id', guestId).then(({ error }) => {
+            if (error) console.info('Supabase checkout guest sync notice:', error.message);
+          });
+        }
+        supabase.from('rooms').update({
+          status: 'Cleaning',
+          current_guest_id: null,
+          current_guest_name: null,
+          current_stay_check_in: null,
+          current_stay_check_out: null,
+        }).eq('room_number', roomNumber).then(({ error }) => {
+          if (error) console.info('Supabase checkout room sync notice:', error.message);
+        });
+      }
+
       // 4. Audit Log
       addAuditLog({
         action: 'Completed Check-Out',
@@ -1108,6 +1218,60 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }, []);
 
+  const clearAllTestData = useCallback(() => {
+    // 1. Clear all guests
+    setGuests([]);
+    persistState(STORAGE_KEYS.GUESTS, []);
+
+    // 2. Reset all rooms to Available (0 occupied, no guest assigned)
+    setRooms((prev) => {
+      const cleaned = prev.map((r) => ({
+        ...r,
+        status: 'Available' as RoomStatus,
+        currentGuestId: undefined,
+        currentGuestName: undefined,
+        currentStayCheckIn: undefined,
+        currentStayCheckOut: undefined,
+      }));
+      persistState(STORAGE_KEYS.ROOMS, cleaned);
+      return cleaned;
+    });
+
+    // 3. Clear all reservations
+    setReservations([]);
+    persistState(STORAGE_KEYS.RESERVATIONS, []);
+
+    // 4. Clear notifications
+    setNotifications([]);
+    persistState(STORAGE_KEYS.NOTIFICATIONS, []);
+
+    // 5. Add clean initial audit log
+    const cleanLog: AuditLog = {
+      id: `LOG-${Date.now().toString().slice(-4)}`,
+      timestamp: new Date().toISOString(),
+      action: 'System Initialized for Live Client Operations',
+      category: 'System',
+      staffName: currentStaff.name,
+      staffRole: currentStaff.role,
+      target: 'Hotel PMS System',
+      details: 'All demonstration and test records cleared. Hotel database is clean and ready for real customer check-ins.',
+      ipAddress: '192.168.1.10 (Terminal 1)',
+      severity: 'info',
+    };
+    setAuditLogs([cleanLog]);
+    persistState(STORAGE_KEYS.AUDIT_LOGS, [cleanLog]);
+
+    // 6. Supabase cleanup if configured
+    if (isSupabaseConfigured) {
+      supabase.from('guests').delete().neq('id', 'non_existent_id').then(({ error }) => {
+        if (error) console.info('Supabase bulk delete guests notice:', error.message);
+      });
+      supabase.from('reservations').delete().neq('id', 'non_existent_id').then(({ error }) => {
+        if (error) console.info('Supabase bulk delete reservations notice:', error.message);
+      });
+    }
+  }, [currentStaff, persistState]);
+
   const checkDuplicate = useCallback(
     (params: DuplicateCheckParams) => checkDuplicateGuest(guests, params),
     [guests]
@@ -1142,6 +1306,8 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         addAuditLog,
         markNotificationAsRead,
         markAllNotificationsAsRead,
+        deleteGuest,
+        clearAllTestData,
         resetToDefaultData,
       }}
     >

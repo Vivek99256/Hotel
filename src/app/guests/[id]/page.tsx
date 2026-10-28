@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useRef, use } from 'react';
+import React, { useState, useRef, use, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useHotel } from '@/lib/data-store';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { NewReservationModal } from '@/components/ui/NewReservationModal';
+import { QuickStayConfirmModal } from '@/components/ui/QuickStayConfirmModal';
 import {
   ArrowLeft,
   KeyRound,
@@ -34,18 +35,23 @@ import {
   FolderOpen,
   ExternalLink,
   HardDrive,
+  LogOut,
+  Trash2,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { StayRecord } from '@/types/hotel';
 
 function GuestProfileContent({ id }: { id: string }) {
   const router = useRouter();
-  const { getGuestById, currentStaff, updateGuest, updateGuestDocument } = useHotel();
+  const { getGuestById, currentStaff, updateGuest, updateGuestDocument, checkOutGuest, deleteGuest, reservations, rooms } = useHotel();
 
   const guest = getGuestById(id);
 
   const [isRevealed, setIsRevealed] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isNewReservationOpen, setIsNewReservationOpen] = useState(false);
+  const [isQuickStayOpen, setIsQuickStayOpen] = useState(false);
+  const [checkoutFeedback, setCheckoutFeedback] = useState<string | null>(null);
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesDraft, setNotesDraft] = useState(guest?.notes || '');
   const [previewImageModal, setPreviewImageModal] = useState<string | null>(null);
@@ -212,46 +218,49 @@ function GuestProfileContent({ id }: { id: string }) {
     setIsEditingNotes(false);
   };
 
-  // Mock luxury stay history timeline
-  const stayTimeline: StayRecord[] = [
-    {
-      id: 'STY-2026-09',
-      roomNumber: guest.currentRoomNumber || '401',
-      roomType: 'Presidential Penthouse Suite',
-      checkInDate: guest.lastVisitDate,
-      checkOutDate: '2026-09-24',
-      totalNights: 6,
-      totalSpent: 14400,
-      folioStatus: 'Settled',
-      rating: 5,
-      feedback: 'Exceptional personalized butler service and champagne pairing.',
-    },
-    {
-      id: 'STY-2026-05',
-      roomNumber: '302',
-      roomType: 'Executive Grand Suite',
-      checkInDate: '2026-05-14',
-      checkOutDate: '2026-05-19',
-      totalNights: 5,
-      totalSpent: 4750,
-      folioStatus: 'Settled',
-      rating: 5,
-    },
-    {
-      id: 'STY-2025-11',
-      roomNumber: '101',
-      roomType: 'Royal Oceanfront Villa',
-      checkInDate: '2025-11-20',
-      checkOutDate: '2025-11-26',
-      totalNights: 6,
-      totalSpent: 11100,
-      folioStatus: 'Settled',
-      rating: 5,
-    },
-  ];
+  // Dynamic reservations / stay records for this guest
+  const guestReservations = useMemo(() => {
+    if (!guest) return [];
+    return reservations
+      .filter(
+        (r) =>
+          r.guestId === guest.id ||
+          (r.guestName && r.guestName.trim().toLowerCase() === guest.fullName.trim().toLowerCase())
+      )
+      .sort((a, b) => new Date(b.createdAt || b.checkInDate).getTime() - new Date(a.createdAt || a.checkInDate).getTime());
+  }, [reservations, guest]);
+
+  const handleCheckOut = () => {
+    if (!guest || !guest.currentRoomNumber) return;
+    const ok = window.confirm(`Check out ${guest.fullName} from Room ${guest.currentRoomNumber}? Room will be scheduled for turnover cleaning.`);
+    if (!ok) return;
+    const res = checkOutGuest(guest.currentRoomNumber, 'Guest departed; folio settled at front desk.');
+    if (res.success) {
+      setCheckoutFeedback(`✓ ${guest.fullName} successfully checked out from Room ${guest.currentRoomNumber}.`);
+      setTimeout(() => setCheckoutFeedback(null), 4500);
+    } else {
+      alert('Check-out failed: ' + res.message);
+    }
+  };
 
   return (
     <div className="space-y-6">
+      {/* Toast Feedback */}
+      {checkoutFeedback && (
+        <div className="rounded-xl border border-[#C8E8D7] bg-[#E8F5E9] px-4 py-3 text-xs font-semibold text-[#2E6F4E] flex items-center justify-between shadow-xs animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4" />
+            <span>{checkoutFeedback}</span>
+          </div>
+          <button
+            onClick={() => setCheckoutFeedback(null)}
+            className="p-1 text-[#2E6F4E] hover:text-[#16432A]"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* Back button & Action Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <Link
@@ -264,18 +273,39 @@ function GuestProfileContent({ id }: { id: string }) {
         {/* Primary Hospitality Actions */}
         <div className="flex items-center gap-2.5 flex-wrap">
           {!guest.currentRoomNumber ? (
-            <Link
-              href={`/check-in?guestId=${guest.id}`}
-              className="inline-flex items-center gap-2 rounded-xl bg-[#202923] px-4 py-2 text-xs font-medium text-white shadow-xs hover:bg-[#161D19] transition-all"
-            >
-              <KeyRound className="h-3.5 w-3.5 text-[#B69A65]" />
-              Check In Returning Guest
-            </Link>
+            <>
+              {/* Primary 1-Click Confirm Stay Button */}
+              <button
+                type="button"
+                onClick={() => setIsQuickStayOpen(true)}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#202923] px-4 py-2 text-xs font-bold text-white shadow-md hover:bg-[#161D19] transition-all group"
+              >
+                <KeyRound className="h-4 w-4 text-[#B69A65] group-hover:scale-110 transition-transform" />
+                <span>Confirm Stay</span>
+              </button>
+
+              <Link
+                href={`/check-in?guestId=${guest.id}`}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#E8E6DF] bg-white px-3 py-2 text-xs font-medium text-[#777C77] hover:border-[#B69A65] hover:text-[#202923] hover:bg-[#FAF9F5] transition-all"
+              >
+                Full Check-In Wizard →
+              </Link>
+            </>
           ) : (
-            <span className="inline-flex items-center gap-2 rounded-xl border border-[#CBDFF2] bg-[#EFF5FB] px-3.5 py-1.5 text-xs font-semibold text-[#214366]">
-              <span className="h-2 w-2 rounded-full bg-[#2A5580] animate-pulse" />
-              In-House • Room {guest.currentRoomNumber}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-2 rounded-xl border border-[#CBDFF2] bg-[#EFF5FB] px-3.5 py-1.5 text-xs font-semibold text-[#214366]">
+                <span className="h-2 w-2 rounded-full bg-[#2A5580] animate-pulse" />
+                In-House • Room {guest.currentRoomNumber}
+              </span>
+              <button
+                type="button"
+                onClick={handleCheckOut}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#B33A3A]/30 bg-[#FFF5F5] px-3 py-1.5 text-xs font-semibold text-[#B33A3A] hover:bg-[#FFEBEB] transition-colors shadow-2xs"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Check Out Guest
+              </button>
+            </div>
           )}
 
           <button
@@ -284,6 +314,16 @@ function GuestProfileContent({ id }: { id: string }) {
           >
             <CalendarPlus className="h-3.5 w-3.5 text-[#B69A65]" />
             New Reservation
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsDeleteModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[#E8E6DF] bg-white px-3 py-2 text-xs font-medium text-[#8C3A3A] hover:bg-[#FDF2F2] hover:border-[#E8A5A5] transition-all cursor-pointer"
+            title="Delete this guest profile"
+          >
+            <Trash2 className="h-3.5 w-3.5 text-[#B33A3A]" />
+            Delete Profile
           </button>
         </div>
       </div>
@@ -349,6 +389,62 @@ function GuestProfileContent({ id }: { id: string }) {
           </div>
         </div>
       </div>
+
+      {/* Returning Guest Quick Stay Confirmation Banner */}
+      {!guest.currentRoomNumber ? (
+        <div className="rounded-2xl border border-[#B69A65]/35 bg-gradient-to-r from-[#FDF9EE] via-[#FAF6E9] to-[#FDF9EE] p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-center gap-3.5">
+            <div className="h-11 w-11 rounded-xl bg-[#202923] text-[#B69A65] flex items-center justify-center shrink-0 shadow-xs">
+              <KeyRound className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-[#202923]">
+                  Returning Guest Check-In (Repeat Customer)
+                </span>
+                <span className="bg-[#202923] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  {guest.totalStays} Prior Stays
+                </span>
+              </div>
+              <p className="text-xs text-[#777C77] mt-0.5">
+                KYC documents and contact info are already saved. Click to select an available room and update the system that this guest is staying now.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsQuickStayOpen(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#8F6F2E] px-5 py-2.5 text-xs font-bold text-white shadow-md hover:bg-[#785C24] transition-all shrink-0 active:scale-95 group"
+          >
+            <Sparkles className="h-4 w-4 text-[#FDE8BA] group-hover:rotate-12 transition-transform" />
+            <span>Confirm Stay Now</span>
+          </button>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-[#CBDFF2] bg-[#EFF5FB] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-[#2A5580] text-white flex items-center justify-center font-bold text-xs shrink-0">
+              {guest.currentRoomNumber}
+            </div>
+            <div>
+              <p className="text-xs font-bold text-[#214366]">
+                Currently In-House in Room {guest.currentRoomNumber}
+              </p>
+              <p className="text-[11px] text-[#5A7B9D]">
+                Checked-in since {formatDate(guest.lastVisitDate)} • Folio active
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleCheckOut}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-[#B33A3A] px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-[#9B2E2E] transition-all shrink-0"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Check Out &amp; Settle Folio
+          </button>
+        </div>
+      )}
 
       {/* Two Column Layout: CRM Data */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -586,46 +682,116 @@ function GuestProfileContent({ id }: { id: string }) {
               <div className="flex items-center gap-2.5">
                 <Clock className="h-4 w-4 text-[#B69A65]" />
                 <h3 className="text-sm font-semibold text-[#202923]">
-                  Stay History Timeline ({stayTimeline.length} Recorded Visits)
+                  Stay History Timeline ({guestReservations.length + (guest.currentRoomNumber ? 1 : 0)} Recorded Stays)
                 </h3>
               </div>
-              <span className="text-xs text-[#777C77]">Historical Folios Settled</span>
+              <span className="text-xs text-[#777C77]">
+                {guest.currentRoomNumber ? '1 In-House • Folios Settled' : 'Historical Folios Settled'}
+              </span>
             </div>
 
             <div className="divide-y divide-[#E8E6DF]/60">
-              {stayTimeline.map((stay) => (
-                <div key={stay.id} className="p-5 hover:bg-[#FAF9F5] transition-colors">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#202923] text-[#B69A65] shrink-0 font-mono font-bold text-xs">
-                        {stay.roomNumber}
+              {/* If currently in-house, show live active stay card at top */}
+              {guest.currentRoomNumber && (
+                <div className="p-5 bg-[#F4FBF7] border-l-4 border-l-[#2E6F4E] transition-colors">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3.5">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#2E6F4E] text-white shrink-0 font-mono font-bold text-sm shadow-xs">
+                        {guest.currentRoomNumber}
                       </div>
                       <div>
-                        <h4 className="text-sm font-semibold text-[#202923]">{stay.roomType}</h4>
-                        <p className="text-xs text-[#777C77]">
-                          {formatDate(stay.checkInDate)} — {formatDate(stay.checkOutDate)} ({stay.totalNights} nights)
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-sm font-bold text-[#202923]">
+                            Room {guest.currentRoomNumber}
+                          </h4>
+                          <span className="rounded-full bg-[#E8F5E9] border border-[#C8E8D7] px-2 py-0.5 text-[10px] font-bold text-[#2E6F4E] flex items-center gap-1">
+                            <span className="h-1.5 w-1.5 rounded-full bg-[#2E6F4E] animate-pulse" />
+                            Current Active Stay (In-House)
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#555E57] mt-0.5">
+                          Checked-In: {formatDate(guest.lastVisitDate)} • Folio Active
                         </p>
                       </div>
                     </div>
 
-                    <div className="text-right sm:text-right">
-                      <span className="font-serif text-base font-semibold text-[#202923]">
-                        {formatCurrency(stay.totalSpent)}
+                    <div className="flex items-center gap-2 sm:self-center">
+                      <span className="rounded-md bg-[#E8F5E9] px-2.5 py-1 text-[11px] font-bold text-[#2E6F4E]">
+                        In-House
                       </span>
-                      <span className="block text-[11px] text-[#2E6F4E] font-medium">
-                        Folio Settled
-                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCheckOut}
+                        className="inline-flex items-center gap-1 rounded-lg border border-[#B33A3A]/30 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#B33A3A] hover:bg-[#FFF5F5] transition-colors"
+                      >
+                        <LogOut className="h-3 w-3" />
+                        Check Out
+                      </button>
                     </div>
                   </div>
-
-                  {stay.feedback && (
-                    <div className="mt-3 rounded-xl border border-[#E8E6DF] bg-[#FAF9F6] p-3 text-xs text-[#777C77]">
-                      <span className="font-semibold text-[#202923]">Guest Impression: </span>
-                      &ldquo;{stay.feedback}&rdquo;
-                    </div>
-                  )}
                 </div>
-              ))}
+              )}
+
+              {/* Dynamic Reservations List */}
+              {guestReservations.length > 0 ? (
+                guestReservations.map((res) => (
+                  <div key={res.id} className="p-5 hover:bg-[#FAF9F5] transition-colors">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#202923] text-[#B69A65] shrink-0 font-mono font-bold text-xs">
+                          {res.roomNumber}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="text-sm font-semibold text-[#202923]">
+                              Room {res.roomNumber} ({res.roomType})
+                            </h4>
+                            <span className="font-mono text-[10px] text-[#777C77] bg-[#FAF9F6] px-1.5 py-0.5 rounded border border-[#E8E6DF]">
+                              {res.id}
+                            </span>
+                            <StatusBadge status={res.status} type="reservation" size="sm" />
+                          </div>
+                          <p className="text-xs text-[#777C77] mt-0.5">
+                            {formatDate(res.checkInDate)} — {formatDate(res.checkOutDate)} ({res.nights} {res.nights === 1 ? 'night' : 'nights'}) • {res.paymentMethod}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="text-left sm:text-right">
+                        <span className="font-serif text-base font-semibold text-[#202923]">
+                          {formatCurrency(res.totalPrice)}
+                        </span>
+                        <span className="block text-[11px] text-[#2E6F4E] font-medium">
+                          {res.status === 'Checked-In' ? 'Active Folio' : 'Folio Settled'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {res.specialRequests && (
+                      <div className="mt-2.5 rounded-lg border border-[#E8E6DF] bg-[#FAF9F6] p-2.5 text-xs text-[#777C77]">
+                        <strong className="text-[#202923]">Notes: </strong>
+                        {res.specialRequests}
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : !guest.currentRoomNumber ? (
+                <div className="p-8 text-center bg-[#FAF9F6] rounded-xl m-4 border border-dashed border-[#E8E6DF]">
+                  <Clock className="h-8 w-8 text-[#959A95] mx-auto mb-2" />
+                  <p className="text-xs font-semibold text-[#202923]">Ready for 2nd / New Stay</p>
+                  <p className="text-[11px] text-[#777C77] mt-0.5">
+                    Previous record on file: {formatDate(guest.lastVisitDate)} ({guest.totalStays} prior stays)
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsQuickStayOpen(true)}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-[#202923] px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-[#161D19]"
+                  >
+                    <KeyRound className="h-3.5 w-3.5 text-[#B69A65]" />
+                    Confirm Stay Now
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -666,12 +832,80 @@ function GuestProfileContent({ id }: { id: string }) {
         </div>
       )}
 
+      {/* Quick Stay Confirmation Modal */}
+      <QuickStayConfirmModal
+        isOpen={isQuickStayOpen}
+        onClose={() => setIsQuickStayOpen(false)}
+        guest={guest}
+        onSuccess={(reservationId, roomNumber) => {
+          setIsQuickStayOpen(false);
+          setCheckoutFeedback(`✓ Successfully checked in ${guest.fullName} into Room ${roomNumber}! Stay record entry created.`);
+          setTimeout(() => setCheckoutFeedback(null), 6000);
+        }}
+      />
+
       {/* Reservation Modal */}
       <NewReservationModal
         isOpen={isNewReservationOpen}
         onClose={() => setIsNewReservationOpen(false)}
         preselectedGuestId={guest.id}
       />
+
+      {/* Delete Guest Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#202923]/60 backdrop-blur-[3px] animate-in fade-in"
+          onClick={() => setIsDeleteModalOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl border border-[#E8E6DF] p-6 space-y-4 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-[#FDF2F2] text-[#B33A3A] flex items-center justify-center shrink-0 border border-[#FBE0B9]">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-base text-[#202923]">Delete Guest Profile?</h3>
+                <p className="text-xs text-[#777C77]">This action cannot be undone</p>
+              </div>
+            </div>
+
+            <div className="text-xs text-[#555E57] bg-[#FAF9F6] p-3.5 rounded-xl border border-[#E8E6DF] space-y-1">
+              <p>
+                Are you sure you want to permanently delete <strong>{guest.fullName}</strong> ({guest.id})?
+              </p>
+              {guest.currentRoomNumber && (
+                <p className="text-[#B33A3A] font-semibold pt-1">
+                  ⚠️ This guest is currently in Room {guest.currentRoomNumber}. The room will be immediately released to Available.
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsDeleteModalOpen(false)}
+                className="rounded-xl border border-[#E8E6DF] px-4 py-2 text-xs font-semibold text-[#777C77] hover:bg-[#FAF9F6] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteGuest(guest.id);
+                  setIsDeleteModalOpen(false);
+                  router.push('/guests');
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#B33A3A] px-4 py-2 text-xs font-bold text-white hover:bg-[#962A2A] transition-colors shadow-xs"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete Profile
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

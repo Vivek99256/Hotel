@@ -154,8 +154,8 @@ export function AppHeader({
               >
                 <KeyRound className="h-4 w-4 text-[#B69A65]" />
                 <div className="text-left">
-                  <p className="font-medium">Express Check-In</p>
-                  <p className="text-[11px] text-[#777C77]">Returning guest room key issue</p>
+                  <p className="font-medium">Returning Guest Check-In</p>
+                  <p className="text-[11px] text-[#777C77]">Confirm stay for repeat customer</p>
                 </div>
               </button>
               <button

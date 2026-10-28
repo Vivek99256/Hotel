@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Users,
   BedDouble,
+  KeyRound,
   CalendarDays,
   BarChart3,
   UserCog,
@@ -49,6 +50,11 @@ export function AppSidebar({
       label: 'Guests',
       href: '/guests',
       icon: Users,
+    },
+    {
+      label: 'Check-In (Returning Guest)',
+      href: '/check-in',
+      icon: KeyRound,
     },
     {
       label: 'Rooms',
