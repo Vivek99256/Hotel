@@ -18,6 +18,7 @@ import {
   BedDouble,
 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
+import { OfflineSyncWidget } from '@/components/ui/OfflineSyncWidget';
 
 interface AppHeaderProps {
   onOpenSearch: () => void;
@@ -128,6 +129,9 @@ export function AppHeader({
             ⌘K
           </kbd>
         </button>
+
+        {/* Offline & Auto-Sync Widget Indicator */}
+        <OfflineSyncWidget />
 
         {/* Quick Actions Dropdown */}
         <div className="relative">

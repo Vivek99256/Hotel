@@ -33,7 +33,9 @@ export function AppSidebar({
   setIsMobileOpen,
 }: AppSidebarProps) {
   const pathname = usePathname();
-  const { rooms, reservations, notifications } = useHotel();
+  const { rooms, reservations, notifications, isOnline, isSimulatedOffline, pendingSyncCount } = useHotel();
+
+  const isActuallyOffline = !isOnline || isSimulatedOffline;
 
   // Dynamic badge counts
   const cleaningCount = rooms.filter((r) => r.status === 'Cleaning').length;
@@ -191,18 +193,32 @@ export function AppSidebar({
               <span className="text-[11px] font-bold uppercase tracking-wider text-[#777C77]">
                 Front Desk
               </span>
-              <span className="flex items-center gap-1.5 text-[11px] font-medium text-[#235F42]">
-                <span className="h-2 w-2 rounded-full bg-[#2E6F4E] animate-pulse" />
-                Live Sync
-              </span>
+              {isActuallyOffline ? (
+                <span className="flex items-center gap-1.5 text-[11px] font-medium text-amber-700">
+                  <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                  Offline ({pendingSyncCount})
+                </span>
+              ) : pendingSyncCount > 0 ? (
+                <span className="flex items-center gap-1.5 text-[11px] font-medium text-orange-700">
+                  <span className="h-2 w-2 rounded-full bg-orange-500 animate-pulse" />
+                  {pendingSyncCount} Pending
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-[11px] font-medium text-[#235F42]">
+                  <span className="h-2 w-2 rounded-full bg-[#2E6F4E] animate-pulse" />
+                  Live Sync
+                </span>
+              )}
             </div>
-            {/* <p className="mt-1 text-[11px] text-[#959A95]">
-              Heritage PMS • Udaipur, Rajasthan
-            </p> */}
           </div>
         ) : (
           <div className="flex justify-center">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#2E6F4E] ring-2 ring-white" title="Connected to PMS" />
+            <span
+              className={`h-2.5 w-2.5 rounded-full ring-2 ring-white ${
+                isActuallyOffline ? 'bg-amber-500' : 'bg-[#2E6F4E]'
+              }`}
+              title={isActuallyOffline ? 'Offline Cache Active' : 'Connected to PMS'}
+            />
           </div>
         )}
       </div>

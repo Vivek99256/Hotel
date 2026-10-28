@@ -170,3 +170,19 @@ export interface HotelNotification {
   isRead: boolean;
   actionLink?: string;
 }
+
+export interface OfflineSyncItem {
+  id: string;
+  timestamp: string; // ISO string
+  createdAtEpoch: number;
+  entity: 'guest' | 'room' | 'reservation' | 'audit_log';
+  action: 'insert' | 'update' | 'upsert' | 'delete';
+  title: string; // Descriptive title (Gujarati + English)
+  payload: any;
+  matchColumn?: string;
+  matchValue?: any;
+  status: 'pending' | 'syncing' | 'failed' | 'synced';
+  error?: string;
+  retryCount: number;
+}
+

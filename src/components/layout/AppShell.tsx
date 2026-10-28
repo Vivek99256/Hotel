@@ -9,6 +9,7 @@ import { GlobalSearchModal } from '@/components/ui/GlobalSearchModal';
 import { GuestRegistrationModal } from '@/components/ui/GuestRegistrationModal';
 import { NewReservationModal } from '@/components/ui/NewReservationModal';
 import { AddRoomModal } from '@/components/ui/AddRoomModal';
+import { OfflineBanner } from '@/components/ui/OfflineBanner';
 import {
   LayoutDashboard,
   Users,
@@ -71,6 +72,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onToggleMobileMenu={() => setIsMobileOpen((prev) => !prev)}
           />
         </Suspense>
+
+        <OfflineBanner />
 
         <main className="flex-1 p-3 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 md:pb-8">
           <Suspense fallback={<div className="h-40 animate-pulse bg-white rounded-2xl border border-[#E8E6DF]" />}>

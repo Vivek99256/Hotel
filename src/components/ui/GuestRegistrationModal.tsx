@@ -19,7 +19,7 @@ export function GuestRegistrationModal({
   onClose,
   onGuestCreated,
 }: GuestRegistrationModalProps) {
-  const { addGuest, checkDuplicateGuest } = useHotel();
+  const { addGuest, checkDuplicateGuest, isOnline, isSimulatedOffline } = useHotel();
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -282,7 +282,15 @@ export function GuestRegistrationModal({
             </div>
             <h3 className="text-lg font-semibold text-[#202923]">Guest Registered Successfully</h3>
             <p className="mt-2 text-xs sm:text-sm text-[#777C77] max-w-md mx-auto">
-              Guest record <span className="font-mono font-bold text-[#202923]">{createdId}</span> with verified ID proof photo has been stored in your live Supabase database.
+              {!isOnline || isSimulatedOffline ? (
+                <span>
+                  Guest record <span className="font-mono font-bold text-[#202923]">{createdId}</span> has been safely saved in <strong className="text-amber-700">Offline Local Cache</strong>. As soon as power/internet restores, it will automatically sync to your live Supabase database!
+                </span>
+              ) : (
+                <span>
+                  Guest record <span className="font-mono font-bold text-[#202923]">{createdId}</span> with verified ID proof photo has been stored in your live Supabase database.
+                </span>
+              )}
             </p>
             <div className="mt-6 flex justify-center">
               <button

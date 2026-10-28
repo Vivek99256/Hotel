@@ -8,6 +8,7 @@ import {
   AuditLog,
   StaffUser,
   HotelNotification,
+  OfflineSyncItem,
   IdentityDocument,
   CheckInPayload,
   RoomStatus,
@@ -221,6 +222,17 @@ interface HotelContextType {
   isLoading: boolean;
   isSupabaseConnected: boolean;
 
+  // Offline & Auto-Sync
+  isOnline: boolean;
+  isSimulatedOffline: boolean;
+  setIsSimulatedOffline: React.Dispatch<React.SetStateAction<boolean>>;
+  syncQueue: OfflineSyncItem[];
+  isSyncing: boolean;
+  lastSyncTime: string | null;
+  pendingSyncCount: number;
+  syncOfflineDataNow: () => Promise<{ success: boolean; syncedCount: number; errors: string[] }>;
+  clearCompletedSyncQueue: () => void;
+
   // Guest actions
   addGuest: (guestData: Partial<Guest>, options?: { allowSameNameDifferentId?: boolean }) => Guest;
   checkDuplicateGuest: (params: DuplicateCheckParams) => DuplicateCheckResult;
@@ -259,6 +271,8 @@ const STORAGE_KEYS = {
   RESERVATIONS: 'royal_haveli_reservations_v2',
   AUDIT_LOGS: 'royal_haveli_audit_logs_v2',
   NOTIFICATIONS: 'royal_haveli_notifications_v2',
+  OFFLINE_QUEUE: 'royal_haveli_offline_queue_v2',
+  LAST_SYNC_TIME: 'royal_haveli_last_sync_time_v2',
 };
 
 const normalizeRoomCategory = (type?: string): RoomType => {
@@ -290,6 +304,13 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
   const [isSupabaseConnected, setIsSupabaseConnected] = useState(isSupabaseConfigured);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Offline & Power Cut Data Sync
+  const [isOnline, setIsOnline] = useState<boolean>(true);
+  const [isSimulatedOffline, setIsSimulatedOffline] = useState<boolean>(false);
+  const [syncQueue, setSyncQueue] = useState<OfflineSyncItem[]>([]);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+
   // Save changes to localStorage
   const persistState = useCallback(
     (key: string, data: unknown) => {
@@ -302,24 +323,300 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  // Sync queued offline actions to Supabase live database
+  const syncOfflineDataNow = useCallback(async (): Promise<{
+    success: boolean;
+    syncedCount: number;
+    errors: string[];
+  }> => {
+    if (isSimulatedOffline) {
+      return {
+        success: false,
+        syncedCount: 0,
+        errors: ['Offline simulation active. Network requests suspended.'],
+      };
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setIsOnline(false);
+      return {
+        success: false,
+        syncedCount: 0,
+        errors: ['Internet connection unavailable (Offline / Power Cut)'],
+      };
+    }
+
+    // Read latest from localStorage to ensure we have all queued changes
+    let queueToProcess: OfflineSyncItem[] = [];
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.OFFLINE_QUEUE);
+      queueToProcess = stored ? JSON.parse(stored) : syncQueue;
+    } catch {
+      queueToProcess = syncQueue;
+    }
+
+    if (!queueToProcess || queueToProcess.length === 0) {
+      const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setLastSyncTime(nowTime);
+      persistState(STORAGE_KEYS.LAST_SYNC_TIME, nowTime);
+      return { success: true, syncedCount: 0, errors: [] };
+    }
+
+    if (!isSupabaseConfigured) {
+      setSyncQueue([]);
+      persistState(STORAGE_KEYS.OFFLINE_QUEUE, []);
+      return { success: true, syncedCount: queueToProcess.length, errors: [] };
+    }
+
+    setIsSyncing(true);
+    const remainingQueue: OfflineSyncItem[] = [];
+    const errors: string[] = [];
+    let syncedCount = 0;
+
+    for (let i = 0; i < queueToProcess.length; i++) {
+      const item = queueToProcess[i];
+      try {
+        let opError: any = null;
+
+        if (item.entity === 'guest') {
+          if (item.action === 'upsert' || item.action === 'insert') {
+            const { error } = await supabase.from('guests').upsert([item.payload], { onConflict: 'id' });
+            opError = error;
+          } else if (item.action === 'update') {
+            const { error } = await supabase
+              .from('guests')
+              .update(item.payload)
+              .eq(item.matchColumn || 'id', item.matchValue);
+            opError = error;
+          } else if (item.action === 'delete') {
+            const { error } = await supabase
+              .from('guests')
+              .delete()
+              .eq(item.matchColumn || 'id', item.matchValue);
+            opError = error;
+          }
+        } else if (item.entity === 'room') {
+          if (item.action === 'upsert' || item.action === 'insert') {
+            const { error } = await supabase.from('rooms').upsert([item.payload], { onConflict: 'room_number' });
+            opError = error;
+          } else if (item.action === 'update') {
+            const { error } = await supabase
+              .from('rooms')
+              .update(item.payload)
+              .eq(item.matchColumn || 'room_number', item.matchValue);
+            opError = error;
+          } else if (item.action === 'delete') {
+            const { error } = await supabase
+              .from('rooms')
+              .delete()
+              .eq(item.matchColumn || 'room_number', item.matchValue);
+            opError = error;
+          }
+        } else if (item.entity === 'reservation') {
+          if (item.action === 'upsert' || item.action === 'insert') {
+            const { error } = await supabase.from('reservations').upsert([item.payload], { onConflict: 'id' });
+            opError = error;
+          } else if (item.action === 'update') {
+            const { error } = await supabase
+              .from('reservations')
+              .update(item.payload)
+              .eq(item.matchColumn || 'id', item.matchValue);
+            opError = error;
+          } else if (item.action === 'delete') {
+            const { error } = await supabase
+              .from('reservations')
+              .delete()
+              .eq(item.matchColumn || 'id', item.matchValue);
+            opError = error;
+          }
+        } else if (item.entity === 'audit_log') {
+          const { error } = await supabase.from('audit_logs').upsert([item.payload], { onConflict: 'id' });
+          opError = error;
+        }
+
+        if (opError) {
+          throw new Error(opError.message);
+        } else {
+          syncedCount++;
+        }
+      } catch (err: any) {
+        console.warn(`Sync failed for item ${item.id} (${item.title}):`, err);
+        errors.push(`${item.title}: ${err.message || 'Connection error'}`);
+        remainingQueue.push({
+          ...item,
+          status: 'failed',
+          error: err.message || 'Network error',
+          retryCount: (item.retryCount || 0) + 1,
+        });
+
+        // Network break check
+        if (
+          err.message?.includes('Failed to fetch') ||
+          err.message?.includes('NetworkError') ||
+          (typeof navigator !== 'undefined' && !navigator.onLine)
+        ) {
+          setIsOnline(false);
+          // Append remaining unprocessed items
+          if (i + 1 < queueToProcess.length) {
+            remainingQueue.push(...queueToProcess.slice(i + 1));
+          }
+          break;
+        }
+      }
+    }
+
+    setSyncQueue(remainingQueue);
+    persistState(STORAGE_KEYS.OFFLINE_QUEUE, remainingQueue);
+    setIsSyncing(false);
+
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setLastSyncTime(nowTime);
+    persistState(STORAGE_KEYS.LAST_SYNC_TIME, nowTime);
+
+    if (syncedCount > 0) {
+      setIsOnline(true);
+      setIsSupabaseConnected(true);
+
+      // Notification
+      const syncNotif: HotelNotification = {
+        id: `NOTIF-SYNC-${Date.now()}`,
+        title: 'Auto-Sync Completed',
+        description: `Connection restored. ${syncedCount} cached offline record(s) successfully synchronized to live database.`,
+        timestamp: nowTime,
+        type: 'security',
+        isRead: false,
+      };
+      setNotifications((prev) => {
+        const updated = [syncNotif, ...prev];
+        persistState(STORAGE_KEYS.NOTIFICATIONS, updated);
+        return updated;
+      });
+
+      // Audit Log
+      const syncAudit: AuditLog = {
+        id: `AUD-SYNC-${Date.now().toString().slice(-4)}`,
+        timestamp: new Date().toISOString(),
+        action: 'Offline Cache Synced to Live Supabase DB',
+        category: 'System',
+        staffName: currentStaff.name,
+        staffRole: currentStaff.role,
+        target: `Supabase Live DB (${syncedCount} synced)`,
+        details: `Flushed offline local storage queue. ${syncedCount} items successfully synchronized with cloud database. Remaining in queue: ${remainingQueue.length}.`,
+        ipAddress: '192.168.1.10 (Terminal 1)',
+        severity: 'info',
+      };
+      setAuditLogs((prev) => {
+        const updated = [syncAudit, ...prev];
+        persistState(STORAGE_KEYS.AUDIT_LOGS, updated);
+        return updated;
+      });
+    }
+
+    return {
+      success: errors.length === 0,
+      syncedCount,
+      errors,
+    };
+  }, [currentStaff.name, currentStaff.role, isSimulatedOffline, persistState, syncQueue]);
+
+  // Enqueue an action to be saved offline and synced online
+  const enqueueSyncItem = useCallback(
+    (itemData: {
+      entity: OfflineSyncItem['entity'];
+      action: OfflineSyncItem['action'];
+      title: string;
+      payload: any;
+      matchColumn?: string;
+      matchValue?: any;
+    }) => {
+      const newItem: OfflineSyncItem = {
+        id: `SYNC-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: new Date().toISOString(),
+        createdAtEpoch: Date.now(),
+        entity: itemData.entity,
+        action: itemData.action,
+        title: itemData.title,
+        payload: itemData.payload,
+        matchColumn: itemData.matchColumn,
+        matchValue: itemData.matchValue,
+        status: 'pending',
+        retryCount: 0,
+      };
+
+      setSyncQueue((prev) => {
+        const updated = [...prev, newItem];
+        persistState(STORAGE_KEYS.OFFLINE_QUEUE, updated);
+        return updated;
+      });
+
+      // If online and not simulated offline, trigger background sync
+      if (typeof navigator !== 'undefined' && navigator.onLine && !isSimulatedOffline) {
+        setTimeout(() => {
+          syncOfflineDataNow();
+        }, 300);
+      }
+
+      return newItem;
+    },
+    [isSimulatedOffline, persistState, syncOfflineDataNow]
+  );
+
+  const clearCompletedSyncQueue = useCallback(() => {
+    setSyncQueue([]);
+    persistState(STORAGE_KEYS.OFFLINE_QUEUE, []);
+  }, [persistState]);
+
+  // Network online/offline event listeners
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      if (!isSimulatedOffline) {
+        syncOfflineDataNow();
+      }
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    setIsOnline(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [isSimulatedOffline, syncOfflineDataNow]);
+
+  // Periodic sync check (every 10 seconds if queue has items)
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const interval = setInterval(() => {
+      if (
+        typeof navigator !== 'undefined' &&
+        navigator.onLine &&
+        !isSimulatedOffline &&
+        syncQueue.length > 0 &&
+        !isSyncing
+      ) {
+        syncOfflineDataNow();
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [isSimulatedOffline, isSyncing, syncOfflineDataNow, syncQueue.length]);
+
   // Hydrate from localStorage and Supabase on mount
   useEffect(() => {
     try {
-      // Clean legacy foreign data caches from previous sessions if present
-      const legacyKeys = [
-        'aurelia_hotel_guests_v1',
-        'aurelia_hotel_rooms_v1',
-        'aurelia_hotel_reservations_v1',
-        'aurelia_hotel_audit_logs_v1',
-        'aurelia_hotel_notifications_v1',
-      ];
-      legacyKeys.forEach((k) => localStorage.removeItem(k));
-
       const storedGuests = localStorage.getItem(STORAGE_KEYS.GUESTS);
       const storedRooms = localStorage.getItem(STORAGE_KEYS.ROOMS);
       const storedReservations = localStorage.getItem(STORAGE_KEYS.RESERVATIONS);
       const storedAuditLogs = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
       const storedNotifs = localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
+      const storedQueue = localStorage.getItem(STORAGE_KEYS.OFFLINE_QUEUE);
+      const storedLastSync = localStorage.getItem(STORAGE_KEYS.LAST_SYNC_TIME);
 
       if (storedGuests) {
         const parsedGuests = JSON.parse(storedGuests);
@@ -339,6 +636,13 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
       if (storedReservations) setReservations(JSON.parse(storedReservations));
       if (storedAuditLogs) setAuditLogs(JSON.parse(storedAuditLogs));
       if (storedNotifs) setNotifications(JSON.parse(storedNotifs));
+      if (storedQueue) {
+        try {
+          const parsedQueue = JSON.parse(storedQueue);
+          if (Array.isArray(parsedQueue)) setSyncQueue(parsedQueue);
+        } catch {}
+      }
+      if (storedLastSync) setLastSyncTime(storedLastSync);
     } catch (e) {
       console.warn('Failed to parse cached hotel state from localStorage:', e);
     } finally {
@@ -347,6 +651,11 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
 
     // Attempt live Supabase synchronization
     if (isSupabaseConfigured) {
+      // Flush any queued offline actions if online
+      if (typeof navigator !== 'undefined' && navigator.onLine && !isSimulatedOffline) {
+        syncOfflineDataNow();
+      }
+
       Promise.all([
         supabase.from('guests').select('*').order('created_at', { ascending: false }),
         supabase.from('rooms').select('*').order('room_number', { ascending: true }),
@@ -384,9 +693,15 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
               createdAt: g.created_at || g.createdAt,
               updatedAt: g.updated_at || g.updatedAt,
             }));
-            const cleanGuests = deduplicateGuests(mappedGuests);
-            setGuests(cleanGuests);
-            persistState(STORAGE_KEYS.GUESTS, cleanGuests);
+
+            // Merge with local state to preserve any unsynced offline guests
+            setGuests((prev) => {
+              const mappedIds = new Set(mappedGuests.map((m: Guest) => m.id));
+              const localUnsynced = prev.filter((p) => !mappedIds.has(p.id));
+              const merged = deduplicateGuests([...localUnsynced, ...mappedGuests]);
+              persistState(STORAGE_KEYS.GUESTS, merged);
+              return merged;
+            });
           }
 
           if (rRes.data && rRes.data.length > 0) {
@@ -411,8 +726,14 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
               cleanedBy: r.cleaned_by || r.cleanedBy,
               maintenanceNotes: r.maintenance_notes || r.maintenanceNotes,
             }));
-            setRooms(mappedRooms);
-            persistState(STORAGE_KEYS.ROOMS, mappedRooms);
+
+            setRooms((prev) => {
+              const mappedRoomNums = new Set(mappedRooms.map((m: Room) => m.roomNumber));
+              const localUnsynced = prev.filter((p) => !mappedRoomNums.has(p.roomNumber));
+              const merged = [...localUnsynced, ...mappedRooms];
+              persistState(STORAGE_KEYS.ROOMS, merged);
+              return merged;
+            });
           }
 
           if (resRes.data && resRes.data.length > 0) {
@@ -436,8 +757,14 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
               paymentMethod: res.payment_method || res.paymentMethod || 'Credit Card (Amex Black)',
               createdAt: res.created_at || res.createdAt,
             }));
-            setReservations(mappedRes);
-            persistState(STORAGE_KEYS.RESERVATIONS, mappedRes);
+
+            setReservations((prev) => {
+              const mappedIds = new Set(mappedRes.map((m: Reservation) => m.id));
+              const localUnsynced = prev.filter((p) => !mappedIds.has(p.id));
+              const merged = [...localUnsynced, ...mappedRes];
+              persistState(STORAGE_KEYS.RESERVATIONS, merged);
+              return merged;
+            });
           }
 
           if (aRes.data && aRes.data.length > 0) {
@@ -453,8 +780,14 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
               ipAddress: a.ip_address || a.ipAddress || '',
               severity: a.severity || 'info',
             }));
-            setAuditLogs(mappedAudit);
-            persistState(STORAGE_KEYS.AUDIT_LOGS, mappedAudit);
+
+            setAuditLogs((prev) => {
+              const mappedIds = new Set(mappedAudit.map((m: AuditLog) => m.id));
+              const localUnsynced = prev.filter((p) => !mappedIds.has(p.id));
+              const merged = [...localUnsynced, ...mappedAudit];
+              persistState(STORAGE_KEYS.AUDIT_LOGS, merged);
+              return merged;
+            });
           }
 
           setIsSupabaseConnected(true);
@@ -463,7 +796,7 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
           console.info('Supabase live table sync notice:', err);
         });
     }
-  }, [persistState]);
+  }, [isSimulatedOffline, persistState, syncOfflineDataNow]);
 
   const addAuditLog = useCallback(
     (log: Omit<AuditLog, 'id' | 'timestamp'>) => {
@@ -477,8 +810,28 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         persistState(STORAGE_KEYS.AUDIT_LOGS, updated);
         return updated;
       });
+
+      enqueueSyncItem({
+        entity: 'audit_log',
+        action: 'insert',
+        title: `Audit: ${newLog.action}`,
+        payload: {
+          id: newLog.id,
+          timestamp: newLog.timestamp,
+          action: newLog.action,
+          category: newLog.category,
+          staff_name: newLog.staffName,
+          staff_role: newLog.staffRole,
+          target: newLog.target,
+          details: newLog.details,
+          ip_address: newLog.ipAddress,
+          severity: newLog.severity,
+        },
+        matchColumn: 'id',
+        matchValue: newLog.id,
+      });
     },
-    [persistState]
+    [enqueueSyncItem, persistState]
   );
 
   const addGuest = useCallback(
@@ -558,34 +911,42 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
 
-      if (isSupabaseConfigured) {
-        supabase.from('guests').insert([{
-          id: newGuest.id,
-          first_name: newGuest.firstName,
-          last_name: newGuest.lastName,
-          full_name: newGuest.fullName,
-          email: newGuest.email,
-          phone: newGuest.phone,
-          phone_masked: newGuest.phoneMasked,
-          avatar_url: newGuest.avatarUrl,
-          tier: newGuest.tier,
-          nationality: newGuest.nationality,
-          city: newGuest.city,
-          country: newGuest.country,
-          address: newGuest.address,
-          verification_status: newGuest.verificationStatus,
-          document: newGuest.document,
-          preferences: newGuest.preferences,
-          total_stays: 0,
-          total_nights: 0,
-          lifetime_spend: 0,
-          last_visit_date: newGuest.lastVisitDate,
-          notes: newGuest.notes,
-          vip_tag: newGuest.vipTag,
-        }]).then(({ error }) => {
-          if (error) console.info('Supabase guest insert notice:', error.message);
-        });
-      }
+      // Always enqueue sync item for offline resilience & immediate sync when online
+      const sbGuest = {
+        id: newGuest.id,
+        first_name: newGuest.firstName,
+        last_name: newGuest.lastName,
+        full_name: newGuest.fullName,
+        email: newGuest.email,
+        phone: newGuest.phone,
+        phone_masked: newGuest.phoneMasked,
+        avatar_url: newGuest.avatarUrl,
+        tier: newGuest.tier,
+        nationality: newGuest.nationality,
+        city: newGuest.city,
+        country: newGuest.country,
+        address: newGuest.address,
+        verification_status: newGuest.verificationStatus,
+        document: newGuest.document,
+        preferences: newGuest.preferences,
+        total_stays: 0,
+        total_nights: 0,
+        lifetime_spend: 0,
+        last_visit_date: newGuest.lastVisitDate,
+        notes: newGuest.notes,
+        vip_tag: newGuest.vipTag,
+        created_at: newGuest.createdAt,
+        updated_at: newGuest.updatedAt,
+      };
+
+      enqueueSyncItem({
+        entity: 'guest',
+        action: 'upsert',
+        title: `New Guest: ${newGuest.fullName} (${newGuest.id})`,
+        payload: sbGuest,
+        matchColumn: 'id',
+        matchValue: newGuest.id,
+      });
 
       addAuditLog({
         action: dupCheck.nameMatchOnly
@@ -604,7 +965,7 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
 
       return newGuest;
     },
-    [addAuditLog, currentStaff, guests, persistState]
+    [addAuditLog, currentStaff, enqueueSyncItem, guests, persistState]
   );
 
   const updateGuest = useCallback(
@@ -615,25 +976,28 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
 
-      if (isSupabaseConfigured) {
-        const sbUpdates: Record<string, any> = {};
-        if (updates.firstName !== undefined) sbUpdates.first_name = updates.firstName;
-        if (updates.lastName !== undefined) sbUpdates.last_name = updates.lastName;
-        if (updates.fullName !== undefined) sbUpdates.full_name = updates.fullName;
-        if (updates.email !== undefined) sbUpdates.email = updates.email;
-        if (updates.phone !== undefined) sbUpdates.phone = updates.phone;
-        if (updates.city !== undefined) sbUpdates.city = updates.city;
-        if (updates.tier !== undefined) sbUpdates.tier = updates.tier;
-        if (updates.verificationStatus !== undefined) sbUpdates.verification_status = updates.verificationStatus;
-        if (updates.document !== undefined) sbUpdates.document = updates.document;
-        if (updates.preferences !== undefined) sbUpdates.preferences = updates.preferences;
-        if (updates.notes !== undefined) sbUpdates.notes = updates.notes;
-        sbUpdates.updated_at = new Date().toISOString();
+      const sbUpdates: Record<string, any> = {};
+      if (updates.firstName !== undefined) sbUpdates.first_name = updates.firstName;
+      if (updates.lastName !== undefined) sbUpdates.last_name = updates.lastName;
+      if (updates.fullName !== undefined) sbUpdates.full_name = updates.fullName;
+      if (updates.email !== undefined) sbUpdates.email = updates.email;
+      if (updates.phone !== undefined) sbUpdates.phone = updates.phone;
+      if (updates.city !== undefined) sbUpdates.city = updates.city;
+      if (updates.tier !== undefined) sbUpdates.tier = updates.tier;
+      if (updates.verificationStatus !== undefined) sbUpdates.verification_status = updates.verificationStatus;
+      if (updates.document !== undefined) sbUpdates.document = updates.document;
+      if (updates.preferences !== undefined) sbUpdates.preferences = updates.preferences;
+      if (updates.notes !== undefined) sbUpdates.notes = updates.notes;
+      sbUpdates.updated_at = new Date().toISOString();
 
-        supabase.from('guests').update(sbUpdates).eq('id', id).then(({ error }) => {
-          if (error) console.info('Supabase guest update notice:', error.message);
-        });
-      }
+      enqueueSyncItem({
+        entity: 'guest',
+        action: 'update',
+        title: `Update Guest: ID ${id}`,
+        payload: sbUpdates,
+        matchColumn: 'id',
+        matchValue: id,
+      });
 
       addAuditLog({
         action: 'Updated Guest Profile',
@@ -646,7 +1010,7 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         severity: 'info',
       });
     },
-    [addAuditLog, currentStaff, persistState]
+    [addAuditLog, currentStaff, enqueueSyncItem, persistState]
   );
 
   const deleteGuest = useCallback(
@@ -687,15 +1051,24 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
 
-      // 4. Supabase sync if configured
-      if (isSupabaseConfigured) {
-        supabase.from('guests').delete().eq('id', guestId).then(({ error }) => {
-          if (error) console.info('Supabase guest delete notice:', error.message);
-        });
-        supabase.from('reservations').delete().eq('guest_id', guestId).then(({ error }) => {
-          if (error) console.info('Supabase reservation delete notice:', error.message);
-        });
-      }
+      // 4. Enqueue sync actions
+      enqueueSyncItem({
+        entity: 'guest',
+        action: 'delete',
+        title: `Delete Guest: ${targetGuest.fullName} (${guestId})`,
+        payload: {},
+        matchColumn: 'id',
+        matchValue: guestId,
+      });
+
+      enqueueSyncItem({
+        entity: 'reservation',
+        action: 'delete',
+        title: `Delete Reservations: Guest ${guestId}`,
+        payload: {},
+        matchColumn: 'guest_id',
+        matchValue: guestId,
+      });
 
       // 5. Add audit log
       addAuditLog({
@@ -711,7 +1084,7 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
 
       return { success: true, message: `Successfully deleted ${targetGuest.fullName}` };
     },
-    [addAuditLog, currentStaff, guests, persistState]
+    [addAuditLog, currentStaff, enqueueSyncItem, guests, persistState]
   );
 
   const updateGuestDocument = useCallback(
@@ -737,11 +1110,14 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
               verifiedBy: currentStaff.name,
             };
 
-            if (isSupabaseConfigured) {
-              supabase.from('guests').update({ document: updatedDoc }).eq('id', guestId).then(({ error }) => {
-                if (error) console.info('Supabase document update notice:', error.message);
-              });
-            }
+            enqueueSyncItem({
+              entity: 'guest',
+              action: 'update',
+              title: `Update Document: ${docUpdates.type || 'ID'} (${guestId})`,
+              payload: { document: updatedDoc, verification_status: updatedDoc.status || g.verificationStatus },
+              matchColumn: 'id',
+              matchValue: guestId,
+            });
 
             return {
               ...g,
@@ -768,7 +1144,7 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         severity: 'info',
       });
     },
-    [addAuditLog, currentStaff, persistState]
+    [addAuditLog, currentStaff, enqueueSyncItem, persistState]
   );
 
   const getGuestById = useCallback(
@@ -824,26 +1200,32 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
 
-      if (isSupabaseConfigured) {
-        supabase.from('rooms').insert([{
-          id: newRoom.id,
-          room_number: newRoom.roomNumber,
-          floor: newRoom.floor,
-          type: newRoom.type,
-          price_per_night: newRoom.pricePerNight,
-          status: newRoom.status,
-          capacity: newRoom.capacity,
-          bed_configuration: newRoom.bedConfiguration,
-          square_meters: newRoom.squareMeters,
-          view: newRoom.view,
-          amenities: newRoom.amenities,
-          last_cleaned_at: newRoom.lastCleanedAt,
-          cleaned_by: newRoom.cleanedBy,
-          maintenance_notes: newRoom.maintenanceNotes,
-        }]).then(({ error }) => {
-          if (error) console.info('Supabase room insert notice:', error.message);
-        });
-      }
+      const sbRoom = {
+        id: newRoom.id,
+        room_number: newRoom.roomNumber,
+        floor: newRoom.floor,
+        type: newRoom.type,
+        price_per_night: newRoom.pricePerNight,
+        status: newRoom.status,
+        capacity: newRoom.capacity,
+        bed_configuration: newRoom.bedConfiguration,
+        square_meters: newRoom.squareMeters,
+        view: newRoom.view,
+        amenities: newRoom.amenities,
+        last_cleaned_at: newRoom.lastCleanedAt,
+        cleaned_by: newRoom.cleanedBy,
+        maintenance_notes: newRoom.maintenanceNotes,
+        created_at: new Date().toISOString(),
+      };
+
+      enqueueSyncItem({
+        entity: 'room',
+        action: 'upsert',
+        title: `Add Room: Room ${newRoom.roomNumber} (${newRoom.type})`,
+        payload: sbRoom,
+        matchColumn: 'room_number',
+        matchValue: newRoom.roomNumber,
+      });
 
       addAuditLog({
         action: 'Added New Room',
@@ -858,7 +1240,7 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
 
       return newRoom;
     },
-    [addAuditLog, currentStaff, persistState]
+    [addAuditLog, currentStaff, enqueueSyncItem, persistState]
   );
 
   const updateRoomStatus = useCallback(
@@ -887,6 +1269,20 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
 
+      enqueueSyncItem({
+        entity: 'room',
+        action: 'update',
+        title: `Room Status: Room ${roomNumber} -> ${status}`,
+        payload: {
+          status,
+          maintenance_notes: notes !== undefined ? notes : undefined,
+          last_cleaned_at: status === 'Available' ? new Date().toISOString() : undefined,
+          cleaned_by: status === 'Available' ? `${currentStaff.name} verified` : undefined,
+        },
+        matchColumn: 'room_number',
+        matchValue: roomNumber,
+      });
+
       addAuditLog({
         action: 'Changed Room Status',
         category: 'Room Status',
@@ -898,7 +1294,7 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         severity: status === 'Maintenance' ? 'warning' : 'info',
       });
     },
-    [addAuditLog, currentStaff, persistState]
+    [addAuditLog, currentStaff, enqueueSyncItem, persistState]
   );
 
   const getRoomByNumber = useCallback(
@@ -938,20 +1334,50 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
 
+      const sbReservation = {
+        id: newReservation.id,
+        guest_id: newReservation.guestId,
+        guest_name: newReservation.guestName,
+        guest_email: newReservation.guestEmail,
+        guest_phone_masked: newReservation.guestPhoneMasked,
+        room_number: newReservation.roomNumber,
+        room_type: newReservation.roomType,
+        check_in_date: newReservation.checkInDate,
+        check_out_date: newReservation.checkOutDate,
+        nights: newReservation.nights,
+        adults: newReservation.adults,
+        children: newReservation.children,
+        total_price: newReservation.totalPrice,
+        paid_amount: newReservation.paidAmount,
+        status: newReservation.status,
+        special_requests: newReservation.specialRequests,
+        payment_method: newReservation.paymentMethod,
+        created_at: newReservation.createdAt,
+      };
+
+      enqueueSyncItem({
+        entity: 'reservation',
+        action: 'upsert',
+        title: `New Reservation: ${newReservation.guestName} (Room ${newReservation.roomNumber})`,
+        payload: sbReservation,
+        matchColumn: 'id',
+        matchValue: newReservation.id,
+      });
+
       addAuditLog({
         action: 'Created Reservation',
         category: 'Check-In',
         staffName: currentStaff.name,
         staffRole: currentStaff.role,
         target: `${newReservation.id} (${newReservation.guestName})`,
-        details: `Room ${newReservation.roomNumber} (${newReservation.nights} nights, $${newReservation.totalPrice})`,
+        details: `Room ${newReservation.roomNumber} (${newReservation.nights} nights, ₹${newReservation.totalPrice})`,
         ipAddress: '192.168.10.42 (Terminal 1)',
         severity: 'info',
       });
 
       return newReservation;
     },
-    [addAuditLog, currentStaff, persistState]
+    [addAuditLog, currentStaff, enqueueSyncItem, persistState]
   );
 
   const updateReservationStatus = useCallback(
@@ -961,8 +1387,17 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         persistState(STORAGE_KEYS.RESERVATIONS, updated);
         return updated;
       });
+
+      enqueueSyncItem({
+        entity: 'reservation',
+        action: 'update',
+        title: `Reservation Status: ${id} -> ${status}`,
+        payload: { status },
+        matchColumn: 'id',
+        matchValue: id,
+      });
     },
-    [persistState]
+    [enqueueSyncItem, persistState]
   );
 
   const checkInGuest = useCallback(
@@ -1044,26 +1479,44 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
 
-      // Supabase sync if configured
-      if (isSupabaseConfigured) {
-        supabase.from('guests').update({
+      // Enqueue sync items for offline/online resilience
+      enqueueSyncItem({
+        entity: 'guest',
+        action: 'update',
+        title: `Check-In Guest: ${guest.fullName} (Room ${payload.roomNumber})`,
+        payload: {
           current_room_number: payload.roomNumber,
           last_visit_date: payload.checkInDate,
           total_stays: (guest.totalStays || 0) + 1,
-        }).eq('id', guest.id).then(({ error }) => {
-          if (error) console.info('Supabase guest stay sync notice:', error.message);
-        });
+          current_stay_id: newReservationId,
+        },
+        matchColumn: 'id',
+        matchValue: guest.id,
+      });
 
-        supabase.from('rooms').update({
+      enqueueSyncItem({
+        entity: 'room',
+        action: 'update',
+        title: `Room Occupied: Room ${payload.roomNumber} (${guest.fullName})`,
+        payload: {
           status: 'Occupied',
           current_guest_id: guest.id,
           current_guest_name: guest.fullName,
           current_stay_check_in: payload.checkInDate,
           current_stay_check_out: payload.checkOutDate,
-        }).eq('room_number', payload.roomNumber).then(({ error }) => {
-          if (error) console.info('Supabase room stay sync notice:', error.message);
-        });
-      }
+        },
+        matchColumn: 'room_number',
+        matchValue: payload.roomNumber,
+      });
+
+      enqueueSyncItem({
+        entity: 'reservation',
+        action: 'upsert',
+        title: `Check-In Stay Folio: ${guest.fullName} (Room ${payload.roomNumber})`,
+        payload: newReservation,
+        matchColumn: 'id',
+        matchValue: newReservationId,
+      });
 
       // 4. Log to Audit
       addAuditLog({
@@ -1083,7 +1536,7 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         reservationId: newReservationId,
       };
     },
-    [addAuditLog, currentStaff, guests, persistState, rooms]
+    [addAuditLog, currentStaff, enqueueSyncItem, guests, persistState, rooms]
   );
 
   const checkOutGuest = useCallback(
@@ -1144,25 +1597,47 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
 
-      // Supabase sync if configured
-      if (isSupabaseConfigured) {
-        if (guestId) {
-          supabase.from('guests').update({
+      // Enqueue sync items
+      if (guestId) {
+        enqueueSyncItem({
+          entity: 'guest',
+          action: 'update',
+          title: `Check-Out Clear: Guest ID ${guestId}`,
+          payload: {
             current_room_number: null,
-          }).eq('id', guestId).then(({ error }) => {
-            if (error) console.info('Supabase checkout guest sync notice:', error.message);
-          });
-        }
-        supabase.from('rooms').update({
+            current_stay_id: null,
+          },
+          matchColumn: 'id',
+          matchValue: guestId,
+        });
+      }
+
+      enqueueSyncItem({
+        entity: 'room',
+        action: 'update',
+        title: `Room Marked Cleaning: Room ${roomNumber}`,
+        payload: {
           status: 'Cleaning',
           current_guest_id: null,
           current_guest_name: null,
           current_stay_check_in: null,
           current_stay_check_out: null,
-        }).eq('room_number', roomNumber).then(({ error }) => {
-          if (error) console.info('Supabase checkout room sync notice:', error.message);
-        });
-      }
+          maintenance_notes: notes || 'Turnover cleaning required following departure.',
+        },
+        matchColumn: 'room_number',
+        matchValue: roomNumber,
+      });
+
+      enqueueSyncItem({
+        entity: 'reservation',
+        action: 'update',
+        title: `Reservation Completed: Room ${roomNumber}`,
+        payload: {
+          status: 'Completed',
+        },
+        matchColumn: 'room_number',
+        matchValue: roomNumber,
+      });
 
       // 4. Audit Log
       addAuditLog({
@@ -1181,7 +1656,7 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         message: `Guest ${guestName} checked out of Room ${roomNumber}. Room marked for cleaning.`,
       };
     },
-    [addAuditLog, currentStaff, persistState, rooms]
+    [addAuditLog, currentStaff, enqueueSyncItem, persistState, rooms]
   );
 
   const markNotificationAsRead = useCallback(
@@ -1209,12 +1684,15 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
     setReservations(INITIAL_RESERVATIONS);
     setAuditLogs(INITIAL_AUDIT_LOGS);
     setNotifications(INITIAL_NOTIFICATIONS);
+    setSyncQueue([]);
     try {
       localStorage.removeItem(STORAGE_KEYS.GUESTS);
       localStorage.removeItem(STORAGE_KEYS.ROOMS);
       localStorage.removeItem(STORAGE_KEYS.RESERVATIONS);
       localStorage.removeItem(STORAGE_KEYS.AUDIT_LOGS);
       localStorage.removeItem(STORAGE_KEYS.NOTIFICATIONS);
+      localStorage.removeItem(STORAGE_KEYS.OFFLINE_QUEUE);
+      localStorage.removeItem(STORAGE_KEYS.LAST_SYNC_TIME);
     } catch {}
   }, []);
 
@@ -1245,7 +1723,11 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
     setNotifications([]);
     persistState(STORAGE_KEYS.NOTIFICATIONS, []);
 
-    // 5. Add clean initial audit log
+    // 5. Clear sync queue
+    setSyncQueue([]);
+    persistState(STORAGE_KEYS.OFFLINE_QUEUE, []);
+
+    // 6. Add clean initial audit log
     const cleanLog: AuditLog = {
       id: `LOG-${Date.now().toString().slice(-4)}`,
       timestamp: new Date().toISOString(),
@@ -1261,7 +1743,7 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
     setAuditLogs([cleanLog]);
     persistState(STORAGE_KEYS.AUDIT_LOGS, [cleanLog]);
 
-    // 6. Supabase cleanup if configured
+    // 7. Supabase cleanup if configured
     if (isSupabaseConfigured) {
       supabase.from('guests').delete().neq('id', 'non_existent_id').then(({ error }) => {
         if (error) console.info('Supabase bulk delete guests notice:', error.message);
@@ -1290,6 +1772,15 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
         staffList,
         isLoading,
         isSupabaseConnected,
+        isOnline,
+        isSimulatedOffline,
+        setIsSimulatedOffline,
+        syncQueue,
+        isSyncing,
+        lastSyncTime,
+        pendingSyncCount: syncQueue.length,
+        syncOfflineDataNow,
+        clearCompletedSyncQueue,
         addGuest,
         checkDuplicateGuest: checkDuplicate,
         updateGuest,
